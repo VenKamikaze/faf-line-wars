@@ -12,10 +12,12 @@ mirrored 1v1 (lobby slots 1v2, 3v4, 5v6).
 ## Layout
 
 ```
-LineWars.v0001/            the map folder FAF loads (scmap not yet created)
-  LineWars_scenario.lua    armies, teams, ExtraArmies, file paths
-  LineWars_options.lua     lobby options: income model, round length, Core HP
-  LineWars_script.lua      entry point: OnPopulate/OnStart, alliances, wiring
+LineWars-2p.v0001/            the map folder FAF loads 
+  LineWars-2p_scenario.lua    armies, teams, ExtraArmies, file paths
+  LineWars-2p_options.lua     lobby options: income model, round length, Core HP
+  LineWars-2p_script.lua      entry point: OnPopulate/OnStart, alliances, wiring
+  LineWars-2p.scmap           map file created by FAFMapEditor 512x256 (10x5)
+  LineWars-2p_save.lua
   lib/Config.lua           all tuning + army/lane/marker contract
   lib/SpawnerTypes.lua     structure -> spawned-units data (the balance table)
   lib/RoundManager.lua     round timer loop + announcements
@@ -24,13 +26,13 @@ LineWars.v0001/            the map folder FAF loads (scmap not yet created)
   lib/WinCondition.lua     Cores, elimination, side victory
   MARKERS.md               contract for building the .scmap in FAFMapEditor
 lua-examples/              reference maps/mods (Wave of Death, The Great Pass, KotH)
-LineWars-2p.v0001	   symlink to actual deployed version of the map and files
+deployed-map		   symlink to real deployed copy of map.
 ```
 
 ## Status
 
 - [x] Script framework scaffolded (untested — no map yet)
-- [ ] Build `LineWars.scmap` + `LineWars_save.lua` in FAFMapEditor per MARKERS.md
+- [x] Build `LineWars.scmap` + `LineWars_save.lua` in FAFMapEditor per MARKERS.md
 - [ ] First in-game smoke test (round loop, income, wave march, Core death)
 - [ ] Balance pass on SpawnerTypes numbers
 - [ ] More spawner types (AA, shields, T2/T3, experimental mass sink)

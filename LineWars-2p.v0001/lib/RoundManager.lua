@@ -1,6 +1,6 @@
 -- Drives the round loop: timed build phase, countdown announcements, then
 -- wave launch for every living player.
-local DIR = ScenarioInfo.directory or '/maps/LineWars.v0001/'
+local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
 

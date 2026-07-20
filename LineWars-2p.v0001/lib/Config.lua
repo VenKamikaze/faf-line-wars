@@ -56,6 +56,10 @@ function WaypointMarker(lane, side, n)      -- optional path markers, walked in 
     return 'LW_L' .. lane .. '_Wp' .. n .. '_' .. side
 end
 
+function NoBuildMarker(i, corner)           -- corners (A/B) of rectangular no-build zone i
+    return 'LW_NoBuild' .. i .. '_' .. corner
+end
+
 -- Safe lookup: returns the marker table or nil (MarkerToPosition errors on
 -- missing markers, which makes optional waypoints impossible to probe).
 function GetMarker(name)
@@ -85,6 +89,14 @@ EconomyTickSeconds = 1
 --------------------------------------------------------------------------
 SpawnSpreadRadius = 4           -- units appear within this radius of the spawn marker
 InitialGraceSeconds = 5         -- pause after game start before round 1 begins
+
+--------------------------------------------------------------------------
+-- ACU rules (see lib/AcuRules.lua)
+--------------------------------------------------------------------------
+AcuBuildRateMult = 4            -- ACU build rate multiplier vs stock
+AcuMoveSpeedMult = 4            -- ACU movement speed multiplier vs stock
+AcuRulesTickSeconds = 1         -- how often ACU/no-build rules are enforced
+MidlineReturnOffset = 10        -- warped-back ACUs land this far in front of their Core
 
 DebugMode = true                -- extra LOG() output while developing
 

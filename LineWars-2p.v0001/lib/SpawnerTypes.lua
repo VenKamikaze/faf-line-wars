@@ -74,7 +74,12 @@ DefSpawner {
 function AllowedCategories()
     local allowed = categories.COMMAND
     for bp, def in Spawners do
-        allowed = allowed + categories[string.upper(bp)]
+        -- blueprint-id categories are lowercase in FAF (categories.ueb1101)
+        if categories[bp] then
+            allowed = allowed + categories[bp]
+        else
+            WARN('LineWars: no category for spawner blueprint ' .. bp)
+        end
     end
     return allowed
 end

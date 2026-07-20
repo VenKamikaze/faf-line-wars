@@ -4,7 +4,7 @@
 local ScenarioUtils = import('/lua/sim/ScenarioUtilities.lua')
 local ScenarioFramework = import('/lua/ScenarioFramework.lua')
 local VictoryLib = import('/lua/victory.lua')
-local DIR = ScenarioInfo.directory or '/maps/LineWars.v0001/'
+local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 
 local function ArmyOfCore(coreUnit)

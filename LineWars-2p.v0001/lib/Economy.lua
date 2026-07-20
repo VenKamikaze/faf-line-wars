@@ -1,7 +1,7 @@
 -- Income loop. Two models, chosen in the lobby:
 --   1 (default): base income + each spawner structure adds its income value
 --   2: flat income for everyone, growing every round
-local DIR = ScenarioInfo.directory or '/maps/LineWars.v0001/'
+local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local SpawnerTypes = import(DIR .. 'lib/SpawnerTypes.lua')
 

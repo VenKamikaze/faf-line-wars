@@ -1,6 +1,6 @@
 -- Spawns each player's wave at round end and sends it marching down the lane.
 local ScenarioUtils = import('/lua/sim/ScenarioUtilities.lua')
-local DIR = ScenarioInfo.directory or '/maps/LineWars.v0001/'
+local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local SpawnerTypes = import(DIR .. 'lib/SpawnerTypes.lua')
 
