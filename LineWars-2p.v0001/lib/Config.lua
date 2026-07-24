@@ -114,7 +114,7 @@ EconomyTickSeconds = 1
 -- income (split to every living player on that side). Control is sticky: a land
 -- unit only has to pass through to capture, and the point stays yours until it
 -- is contested (both sides present) or the enemy takes it.
-CapturePointRadius = 12         -- world units; the circle every LW_Cap marker gets
+CapturePointRadius = 7         -- world units; the circle every LW_Cap marker gets
 CapturePointMass = 2            -- mass/second granted per controlled point
 CapturePointEnergy = 25         -- energy/second granted per controlled point
 CapturePointTickSeconds = 0.1   -- control/income poll AND ring redraw cadence
