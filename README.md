@@ -26,8 +26,9 @@ enable. Keeping it that way constrains some of the design; see
 - [x] Per-round storage growth (`lib/CoreStorage.lua`, 216 / 316 / 416 …)
 - [x] Player-sited factories, one queue each, lane-bound by where they stand
 - [x] Air factory + attack bombers + interceptors (air-to-air counter)
+- [x] Lane capture points (`lib/CapturePoints.lua`) — land units capture, income to the side
 - [ ] In-game test of ally-lane reinforcement and the air factory
-- [ ] Static economy: flat ACU income, kill bounties, lane capture points
+- [ ] Static economy remainder: flat ACU income, kill bounties
 - [ ] Lanes 2 and 3 markers (ally reinforcement is untestable until lane 2 exists)
 - [ ] Balance pass using [UNITS.md](UNITS.md)
 - [ ] More unit roles (shields, T2, experimental mass sink)
@@ -50,6 +51,7 @@ LineWars-2p.v0001/            the map folder FAF loads
     RoundManager.lua          round timer loop + announcements
     WaveSpawner.lua           wave spawning, platoon march orders, idle watchdog
     Economy.lua               income models (spawner income / flat scaling)
+    CapturePoints.lua         LW_Cap zones: land units capture, side earns income
     CoreStorage.lua           per-round mass-storage growth on each Core
     WinCondition.lua          Cores, elimination, side victory
     AcuRules.lua              ACU buffs, no-build zones, midline rule
@@ -81,10 +83,12 @@ crashing, except spawn/Core markers for an occupied slot.
 | `LW_L<lane>_Spawn_<side>` | where that side's wave appears | yes, per occupied slot |
 | `LW_L<lane>_Wp<n>_<side>` | optional path points, walked in order before the enemy Core | no |
 | `LW_NoBuild<i>_A` / `_B` | opposite corners of an axis-aligned no-build rectangle | no |
+| `LW_L<lane>_Cap<n>` | centre of a capture point (fixed radius `CapturePointRadius`) | no |
 
-`<lane>` is 1..3, `<side>` is `A` or `B`. Waypoints are probed from `n = 1`
-upward and stop at the first gap. No-build zones are probed from `i = 1`
-likewise, so numbering must not skip.
+`<lane>` is 1..3, `<side>` is `A` or `B`. Waypoints and capture points are probed
+per lane from `n = 1` upward and stop at the first gap; no-build zones from
+`i = 1` likewise — so numbering must not skip. Capture markers are read only for
+lanes that have a player, so an empty lane's points never activate.
 
 Armies in `_save.lua` must be `ARMY_1`..`ARMY_6` plus `ARMY_WAVE_1`..`ARMY_WAVE_6`,
 and the wave armies must also be listed in `_scenario.lua` under
@@ -146,6 +150,30 @@ Line Wars without BlackOps/Total Mayhem or the caps silently revert.
 
 `SetResourceSharing(false)` is set per brain, so allies on the same side cannot
 prop each other up.
+
+#### Capture points
+
+`lib/CapturePoints.lua` turns every `LW_L<lane>_Cap<n>` marker into a fixed-radius
+(`CapturePointRadius`, 12) circular objective, but only for lanes that have a
+player. Detection reuses King of the Hill's
+`GetUnitsAroundPoint(LAND*MOBILE-COMMAND, centre, radius, 'Ally')` — so only
+**mobile land waves capture** (air waves are `AIR`, not `LAND`; the ACU is
+excluded too, so you can't hold a point by parking your commander). Control is
+**side-based** (A vs B), so a reinforcing ally's
+wave can capture too — but income is **lane-local**: only the controlling side's
+player *in that lane* earns `CapturePointMass` (2/s) and `CapturePointEnergy`
+(25/s), not distant teammates. A point held by a reinforcing ally when the lane's
+own player is dead pays nobody.
+
+Control is **sticky**: a land unit only has to *pass through* the circle to
+capture it — it need not stay — and the point remains that side's until it is
+**contested** (both sides have a unit inside at once, which suspends income and
+clears control) or the enemy takes it alone. A debug-draw ring shows the state:
+red for A, blue for B (from `Config.SideColors`), yellow contested, grey neutral.
+FA has no per-unit colour override, so the ring — the same mechanism KotH uses —
+is the visual rather than a colour-flipping structure. Place the `LW_Cap`
+markers on contested ground in FAFMapEditor; with none placed the module is a
+no-op.
 
 ### Factories and the wave queue
 

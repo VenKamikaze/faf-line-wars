@@ -76,6 +76,10 @@ function NoBuildMarker(i, corner)           -- corners (A/B) of rectangular no-b
     return 'LW_NoBuild' .. i .. '_' .. corner
 end
 
+function CaptureMarker(lane, n)              -- centre of capture zone n in a lane (fixed radius)
+    return 'LW_L' .. lane .. '_Cap' .. n
+end
+
 -- Safe lookup: returns the marker table or nil (MarkerToPosition errors on
 -- missing markers, which makes optional waypoints impossible to probe).
 function GetMarker(name)
@@ -104,6 +108,17 @@ BaseEnergyIncome = 100          -- energy/second, both models (energy is not
                                 -- meant to be a constraint in v1)
 FlatIncomeGrowthPerRound = 0.25 -- income model 2: +25% of base per round
 EconomyTickSeconds = 1
+
+-- Lane capture points (lib/CapturePoints.lua). LW_Cap<i> blank markers define
+-- fixed-radius circular zones; holding one pays the controlling side extra
+-- income (split to every living player on that side). Control is sticky: a land
+-- unit only has to pass through to capture, and the point stays yours until it
+-- is contested (both sides present) or the enemy takes it.
+CapturePointRadius = 12         -- world units; the circle every LW_Cap marker gets
+CapturePointMass = 2            -- mass/second granted per controlled point
+CapturePointEnergy = 25         -- energy/second granted per controlled point
+CapturePointTickSeconds = 0.1   -- control/income poll AND ring redraw cadence
+                                -- (rings are one-frame draws, so keep this fast)
 
 --------------------------------------------------------------------------
 -- Waves
