@@ -1,0 +1,77 @@
+-- Blueprint overrides for Line Wars: storage capacities and the build cost of
+-- the two factories. Pure Economy MERGEs (a documented-safe target), applied by
+-- the map's *.bp scan at LOAD time on both the sim and UI passes.
+--
+-- IMPORTANT (learned 2026-07-22): this MUST be done at load time via a .bp, NOT
+-- at runtime in the sim. Editing __blueprints from the script (OnPopulate etc.)
+-- changes only what lua reads — the engine finalises each unit's economy from the
+-- C-side blueprint at load, so a runtime lua edit does NOT change a spawned unit's
+-- actual storage cap (confirmed: the "granted +100 storage" log printed 100 while
+-- the unit still contributed 500). Load-time .bp merges DO reach the engine.
+--
+-- CAVEAT: a map .bp loses to MODS, which load after the map. With unit-overhaul
+-- mods active (Kamikaze's load order: blackopsfaf-unleashed, totalmayhem, ...) the ACU
+-- merge below is overridden back to the mod's value and the ACU keeps ~650
+-- storage. These overrides only take effect when playing WITHOUT such mods.
+--
+-- The OVERRIDES table below is the single source of truth for Line Wars costs and
+-- is parsed by tools/gen-units-md.py to build UNITS.md — keep it in this literal
+-- shape (one row per group, `ids = { ... }` plus the Economy fields to merge).
+
+local OVERRIDES = {
+    {
+        -- The ACU's mass storage is the whole round-1 cap, and it is also gifted
+        -- as starting mass at warp-in (ACUUnit.GiveInitialResources). Stock 650.
+        ids = { 'uel0001', 'ual0001', 'url0001', 'xsl0001' },
+        StorageMass = 216,
+    },
+    {
+        -- T1 land factory. Cheapened from stock 240m/2100e so the first factory
+        -- is affordable inside the round-1 cap of 216 (players build their own
+        -- factories now — none is placed for them). Storage zeroed (stock 80) so
+        -- owning factories doesn't quietly raise the cap.
+        ids = { 'ueb0101', 'uab0101', 'urb0101', 'xsb0101' },
+        BuildCostMass = 100,
+        BuildCostEnergy = 500,
+        StorageMass = 0,
+    },
+    {
+        -- T1 air factory. Dearer than land: it unlocks bombers, which ignore the
+        -- lane entirely. Stock 210m/2400e, storage 80.
+        ids = { 'ueb0102', 'uab0102', 'urb0102', 'xsb0102' },
+        BuildCostMass = 150,
+        BuildCostEnergy = 800,
+        StorageMass = 0,
+    },
+    {
+        -- T1 attack bombers. Stock energy is 2050 against a 3900 energy cap and
+        -- 100 e/s income, which made a second bomber unqueueable for most of a
+        -- round — energy, not mass, was the whole air balance. 450 keeps the
+        -- ~1:5 mass:energy ratio the T1 land units use (90 mass -> 450 energy).
+        ids = { 'uea0103', 'uaa0103', 'ura0103', 'xsa0103' },
+        BuildCostEnergy = 450,
+    },
+    {
+        -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
+        -- (hidden, invulnerable) on each Core at the start of every round holds
+        -- this much, so the cap grows by this per round. Stock 500.
+        ids = { 'ueb1106', 'uab1106', 'urb1106', 'xsb1106' },
+        StorageMass = 100,
+    },
+}
+
+for i, group in OVERRIDES do
+    for j, id in group.ids do
+        -- A fresh Economy table per blueprint: StoreBlueprint keeps what it is
+        -- given, so sharing one table across merges would alias them together.
+        local economy = {}
+        if group.BuildCostMass ~= nil then economy.BuildCostMass = group.BuildCostMass end
+        if group.BuildCostEnergy ~= nil then economy.BuildCostEnergy = group.BuildCostEnergy end
+        if group.StorageMass ~= nil then economy.StorageMass = group.StorageMass end
+        UnitBlueprint {
+            Merge = true,
+            BlueprintId = id,
+            Economy = economy,
+        }
+    end
+end

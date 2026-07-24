@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""Generate UNITS.md — the Line Wars balance reference.
+
+Reads three sources and joins them:
+
+  * LineWars-2p.v0001/lib/UnitTypes.lua   which factories exist and what each
+                                          one may build (the balance table)
+  * LineWars-2p.v0001/units/LineWars_units.bp
+                                          Line Wars' own cost overrides
+  * <gamedata>/units.nx2                  the stock blueprint each unit starts
+                                          from (an ordinary zip)
+
+Costs are shown post-override, marked with * where Line Wars changes them, so
+the table always reflects what a player is actually charged.
+
+Usage:  python3 tools/gen-units-md.py [--gamedata ~/.faforever/gamedata] [-o UNITS.md]
+"""
+
+import argparse
+import os
+import re
+import sys
+import zipfile
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAP = os.path.join(REPO, "LineWars-2p.v0001")
+UNIT_TYPES = os.path.join(MAP, "lib", "UnitTypes.lua")
+OVERRIDES_BP = os.path.join(MAP, "units", "LineWars_units.bp")
+DEFAULT_GAMEDATA = os.path.expanduser("~/.faforever/gamedata")
+
+
+def strip_lua_comments(text):
+    return re.sub(r"--[^\n]*", "", text)
+
+
+def parse_id_list(body):
+    return re.findall(r"'([^']+)'", body)
+
+
+def parse_unit_types(path):
+    """-> [ {kind, name, factories: [id], roles: [ {name, units: [id]} ]} ]"""
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    header = re.compile(
+        r"kind\s*=\s*'([A-Z]+)'\s*,\s*name\s*=\s*'([^']+)'\s*,"
+        r"\s*byFaction\s*=\s*\{([^}]*)\}",
+        re.S,
+    )
+    matches = list(header.finditer(text))
+    if not matches:
+        sys.exit("gen-units-md: no factory definitions found in %s" % path)
+
+    out = []
+    for i, m in enumerate(matches):
+        tail_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        tail = text[m.end():tail_end]
+        roles = [
+            {"name": rn, "units": parse_id_list(rb)}
+            for rn, rb in re.findall(
+                r"name\s*=\s*'([^']+)'\s*,\s*byFaction\s*=\s*\{([^}]*)\}", tail
+            )
+        ]
+        out.append({
+            "kind": m.group(1),
+            "name": m.group(2),
+            "factories": parse_id_list(m.group(3)),
+            "roles": roles,
+        })
+    return out
+
+
+def parse_overrides(path):
+    """-> { blueprint id: {field: value} } from the OVERRIDES table in the .bp"""
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    out = {}
+    groups = re.finditer(
+        r"ids\s*=\s*\{([^}]*)\}(.*?)(?=ids\s*=\s*\{|\Z)", text, re.S
+    )
+    for g in groups:
+        fields = {
+            k: int(v)
+            for k, v in re.findall(r"(BuildCost\w+|StorageMass)\s*=\s*(-?\d+)", g.group(2))
+        }
+        for uid in parse_id_list(g.group(1)):
+            out.setdefault(uid.lower(), {}).update(fields)
+    return out
+
+
+NUM = r"([-\d.]+)"
+
+
+def field(text, name, pattern=NUM):
+    m = re.search(re.escape(name) + r"\s*=\s*" + pattern, text)
+    return m.group(1) if m else None
+
+
+def load_stock(gamedata):
+    """-> { blueprint id: {mass, energy, health, speed, name, desc} }"""
+    archive = os.path.join(gamedata, "units.nx2")
+    if not os.path.isfile(archive):
+        sys.exit("gen-units-md: no units.nx2 under %s (pass --gamedata)" % gamedata)
+
+    stock = {}
+    with zipfile.ZipFile(archive) as z:
+        wanted = {}
+        for name in z.namelist():
+            m = re.match(r"units/([^/]+)/\1_unit\.bp$", name, re.I)
+            if m:
+                wanted[m.group(1).lower()] = name
+        for uid, name in wanted.items():
+            raw = z.read(name).decode("latin-1")
+            stock[uid] = {
+                "mass": field(raw, "BuildCostMass"),
+                "energy": field(raw, "BuildCostEnergy"),
+                "health": field(raw, "MaxHealth"),
+                # Aircraft carry a near-zero ground MaxSpeed alongside the real
+                # MaxAirspeed, so air wins wherever both are present.
+                "speed": field(raw, "MaxAirspeed") or field(raw, "MaxSpeed"),
+                "name": field(raw, "UnitName", r'"(?:<[^>]*>)?([^"]*)"'),
+                "desc": field(raw, "Description", r'"(?:<[^>]*>)?([^"]*)"'),
+            }
+    return stock
+
+
+def num(value):
+    """1234.0 -> '1234'; keep one decimal otherwise."""
+    if value is None:
+        return "?"
+    f = float(value)
+    return str(int(f)) if f == int(f) else "%.1f" % f
+
+
+def cost(uid, key, bp_key, stock, overrides):
+    """Effective cost, suffixed with * when Line Wars overrides the stock value."""
+    entry = stock.get(uid, {})
+    over = overrides.get(uid, {}).get(bp_key)
+    if over is None:
+        return num(entry.get(key))
+    return "%s*" % num(over)
+
+
+def sort_key(uid, stock, overrides):
+    over = overrides.get(uid, {}).get("BuildCostMass")
+    if over is not None:
+        return float(over)
+    return float(stock.get(uid, {}).get("mass") or 0)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--gamedata", default=DEFAULT_GAMEDATA)
+    ap.add_argument("-o", "--output", default=os.path.join(REPO, "UNITS.md"))
+    args = ap.parse_args()
+
+    factions = re.findall(
+        r"'([^']+)'",
+        re.search(
+            r"FactionNames\s*=\s*\{([^}]*)\}",
+            strip_lua_comments(open(UNIT_TYPES, encoding="utf-8").read()),
+        ).group(1),
+    )
+    kinds = parse_unit_types(UNIT_TYPES)
+    overrides = parse_overrides(OVERRIDES_BP)
+    stock = load_stock(os.path.expanduser(args.gamedata))
+
+    for uid in [u for k in kinds for r in k["roles"] for u in r["units"]] + \
+               [f for k in kinds for f in k["factories"]]:
+        if uid not in stock:
+            sys.exit("gen-units-md: %s is not a real blueprint id" % uid)
+
+    L = []
+    L.append("# Line Wars — buildable units")
+    L.append("")
+    L.append("**Generated file — do not edit.** Run `python3 tools/gen-units-md.py`")
+    L.append("after changing `LineWars-2p.v0001/lib/UnitTypes.lua` (which units exist)")
+    L.append("or `LineWars-2p.v0001/units/LineWars_units.bp` (what they cost).")
+    L.append("")
+    L.append("Costs are what a player is actually charged when queuing. A `*` marks a")
+    L.append("value Line Wars overrides; everything else is stock FAF. Build time is")
+    L.append("deliberately absent: factories are pinned to build rate 0, so mass and")
+    L.append("energy are the only levers that gate army size.")
+    L.append("")
+    L.append("Caveat: the overrides live in a map `.bp`, which loses to any unit mod")
+    L.append("that touches the same unit — with BlackOps/Total Mayhem loaded, `*`")
+    L.append("values silently revert to the mod's. Play without unit-overhaul mods.")
+    L.append("")
+
+    L.append("## Factories")
+    L.append("")
+    L.append("Built by the ACU. Each one is an independent queue bound to the lane it")
+    L.append("stands in, so a factory sited in a teammate's lane reinforces that lane.")
+    L.append("")
+    L.append("| Factory | Faction | Blueprint | Mass | Energy | Health |")
+    L.append("| --- | --- | --- | ---: | ---: | ---: |")
+    for k in kinds:
+        for i, uid in enumerate(k["factories"]):
+            L.append("| %s | %s | `%s` | %s | %s | %s |" % (
+                k["name"], factions[i], uid,
+                cost(uid, "mass", "BuildCostMass", stock, overrides),
+                cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                num(stock[uid].get("health")),
+            ))
+    L.append("")
+
+    for k in kinds:
+        L.append("## %s units" % k["name"])
+        L.append("")
+        L.append("| Role | Faction | Blueprint | Name | Mass | Energy | Health | Speed |")
+        L.append("| --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
+        for role in k["roles"]:
+            for i, uid in enumerate(role["units"]):
+                L.append("| %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
+                    role["name"], factions[i], uid, stock[uid].get("name") or "?",
+                    cost(uid, "mass", "BuildCostMass", stock, overrides),
+                    cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                    num(stock[uid].get("health")),
+                    num(stock[uid].get("speed")),
+                ))
+        L.append("")
+
+    L.append("## Every unit by mass cost")
+    L.append("")
+    L.append("The relative-pricing view: cheapest first, all factions and both")
+    L.append("factories together.")
+    L.append("")
+    L.append("| Mass | Energy | Unit | Faction | Role | Factory | Health |")
+    L.append("| ---: | ---: | --- | --- | --- | --- | ---: |")
+    rows = []
+    for k in kinds:
+        for role in k["roles"]:
+            for i, uid in enumerate(role["units"]):
+                rows.append((sort_key(uid, stock, overrides), uid, factions[i],
+                             role["name"], k["name"]))
+    for _, uid, faction, role, kind_name in sorted(rows, key=lambda r: (r[0], r[1])):
+        L.append("| %s | %s | %s (`%s`) | %s | %s | %s | %s |" % (
+            cost(uid, "mass", "BuildCostMass", stock, overrides),
+            cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+            stock[uid].get("name") or "?", uid, faction, role, kind_name,
+            num(stock[uid].get("health")),
+        ))
+    L.append("")
+
+    open(args.output, "w", encoding="utf-8").write("\n".join(L))
+    print("wrote %s (%d units, %d factories)" % (
+        args.output,
+        sum(len(r["units"]) for k in kinds for r in k["roles"]),
+        sum(len(k["factories"]) for k in kinds),
+    ))
+
+
+if __name__ == "__main__":
+    main()

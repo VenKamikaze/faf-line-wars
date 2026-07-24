@@ -1,0 +1,35 @@
+# Line Wars (FAF map) — working notes
+
+## Where the detail lives
+
+Read these rather than re-deriving; each is current and cited.
+
+- `README.md` — the whole design: game loop, layout, **map marker contract** (lane/Core/spawn/no-build marker names), economy, ACU rules, win condition, lobby options, engine findings, dev workflow. Start here.
+- `FACTORY-QUEUE-DESIGN.md` — why the factory-queue model exists, with `file:line` engine citations, plus the open questions (the static economy is the big one still open). Read before touching `lib/FactoryQueue.lua`.
+- `UNITS.md` — **generated**. Every buildable factory and unit with the mass/energy actually charged, sorted by cost. The balance reference.
+- `lib/UnitTypes.lua` — the single balance table (which factories exist, which units each offers). `units/LineWars_units.bp` — what they cost, plus storage caps.
+- `lua-examples/{maps,mods}` — reference FAF maps/mods (Wave of Death, The Great Pass, KotH) for how others solve things.
+
+## Verify & deploy
+
+- `luac5.1 -p <file>` — syntax-checks `.lua` and `.bp`; the only local verification that exists. Run before every sync.
+- Nothing else is locally testable: behaviour must be confirmed by Kamikaze in-game. Do not claim a change works.
+- `deployed-map` is a symlink to a SEPARATE copy. Code flows repo→deployed (`cp lib/*.lua LineWars-2p_script.lua units/*.bp`); `.scmap`/`_save.lua` flow deployed→repo (authored in FAFMapEditor) — never overwrite those.
+- `python3 tools/gen-units-md.py` — regenerates `UNITS.md` after editing `lib/UnitTypes.lua` or `units/LineWars_units.bp`.
+
+## Debugging
+
+- `~/.faforever/logs/game_*.log` — `grep "LineWars:"` for `Config.Log` output. This is the only real evidence channel; read it before theorising.
+- `unzip -l ~/.faforever/gamedata/units.nx2` — gamedata archives are plain zips. `units.nx2` = blueprints (verify ids/costs), `lua.nx2` = engine source under `lua/sim/`. Read the engine rather than guessing.
+
+## FA Lua dialect
+
+- `for i, v in table do` (no `pairs`/`ipairs`) and `table.getn` — Lua 5.0 style. Match it.
+- Blueprint ids are lowercase: `categories.ueb0101`. `string.upper` on one yields nil and throws.
+
+## Engine gotchas already paid for
+
+- `PrintText` from sim shows on EVERY client. Use `Config.PrintTextFor` / `PrintTextForSide`, which gate on `GetFocusArmy()` — safe for UI-only effects, never for anything touching sim state (desync).
+- `SetBlockCommandQueue(true)` also blocks the script's own `IssueBuildFactory`/`IssueClearCommands`. Never use it as an affordability gate.
+- Blueprint edits must be LOAD-time (a map `.bp` merge). Runtime `__blueprints` edits do not reach the engine, and a map `.bp` loses to mods — test without unit-overhaul mods (BlackOps/Total Mayhem).
+- The map's own `AddRestriction` destroys script-spawned units too; anything spawned must be in the allowed category set.

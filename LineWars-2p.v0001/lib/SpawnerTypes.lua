@@ -1,72 +1,145 @@
 -- Spawner definitions: which structures players can build, and what each one
 -- adds to the wave every round. This is the balance heart of the map — add a
 -- DefSpawner block per unit type and everything else (build restrictions,
--- wave spawning, spawner income) picks it up automatically.
+-- wave spawning, spawner income, build-menu text and icons) picks it up
+-- automatically.
 --
--- v1 uses stock structures as proxies so no custom blueprints are needed:
--- each faction builds its own variant and spawns its own faction's units.
--- Longer term these become custom blueprints in a units/ folder.
+-- Spawners are *clones* of the T1 Power Generator rather than stock structures
+-- reused as-is: units/LineWars_spawners_unit.bp reads this file at
+-- blueprint-load time, copies that faction's power-gen blueprint, and stamps
+-- our own id, cost, health and description onto it. That means a spawner type
+-- costs nothing but a block here — we are no longer limited to the supply of
+-- inert stock structures, and each type prices independently.
+--
+-- The visible trade-off: the 48x48 build-button art is looked up by blueprint
+-- id, so our clones fall back to the generic button background. The glyph that
+-- distinguishes them is `icon` below, drawn as an overlay. See the .bp file.
+--
+-- That file runs in the blueprint loader, long before the sim exists — keep
+-- this module free of imports and of anything that touches sim globals at
+-- load time (`categories` is only read inside AllowedCategories, which the
+-- blueprint loader never calls).
 
 Spawners = {}   -- flat map: structure blueprint id -> definition
 
+local FACTIONS = { 'UEF', 'Aeon', 'Cybran', 'Seraphim' }
+
+-- Every spawner is built from that faction's T1 Power Generator: same mesh,
+-- same footprint, same faction styling, so no custom art is needed and all
+-- spawners read as one uniform chassis.
+local CHASSIS = {
+    UEF = 'ueb1101', Aeon = 'uab1101', Cybran = 'urb1101', Seraphim = 'xsb1101',
+}
+
 -- def = {
---   name       display name for announcements/UI
+--   key        short slug, used to build the per-faction blueprint ids
+--   name       display name; shown in the unit-info panel and as the tooltip lead
+--   blurb      short note on the unit's role, appended to the tooltip
+--   cost       mass cost to build (energy and build time derive from it)
+--   health     structure hit points
 --   income     mass/second added to owner's income (income model 1 only)
---   structures per-faction structure blueprint (the thing you build)
---   spawns     per-faction list of { unitBlueprint, count } produced each round
+--   icon       strategic icon, drawn on the build button and on the battlefield.
+--              Names come from /textures/ui/common/game/strategicicons — use the
+--              icon of the unit produced, since the button art cannot change.
+--   spawns     list of groups produced each round:
+--              { count, label, units = { <faction> = unit blueprint } }
 -- }
 local function DefSpawner(def)
-    for faction, structureBp in def.structures do
-        Spawners[structureBp] = {
+    -- Build the tooltip text from the same numbers the wave spawner reads, so
+    -- the build menu can never drift from the balance table.
+    local parts = {}
+    for i, group in def.spawns do
+        table.insert(parts, group.count .. 'x ' .. group.label)
+    end
+    local description = def.name .. ': ' .. table.concat(parts, ' + ')
+        .. ' per round, +' .. def.income .. ' mass/s. ' .. def.blurb .. '.'
+
+    for i, faction in FACTIONS do
+        -- flatten to the { blueprint, count } pairs WaveSpawner iterates
+        local spawns = {}
+        for j, group in def.spawns do
+            table.insert(spawns, { group.units[faction], group.count })
+        end
+        -- blueprint ids are lowercased by the loader; keep ours lowercase so
+        -- the `categories.<id>` lookup in AllowedCategories matches.
+        local id = 'lwb_' .. def.key .. '_' .. string.lower(faction)
+        Spawners[id] = {
             name = def.name,
+            description = description,
+            icon = def.icon,
             income = def.income,
-            spawns = def.spawns[faction],
+            spawns = spawns,
+            -- consumed by units/LineWars_spawners_unit.bp only
+            chassis = CHASSIS[faction],
+            cost = def.cost,
+            health = def.health,
         }
     end
 end
 
--- T1 Power Generator -> 2x Light Assault Bots (cheap swarm chaff)
+-- 2x Light Assault Bots
 DefSpawner {
-    name = 'Assault Bots',
+    key = 'bot',
+    name = 'Assault Bot Spawner',
+    blurb = 'Cheap swarm chaff',
+    cost = 75,
+    health = 600,
     income = 0.4,
-    structures = { UEF = 'ueb1101', Aeon = 'uab1101', Cybran = 'urb1101', Seraphim = 'xsb1101' },
+    icon = 'icon_bot1_directfire',
     spawns = {
-        UEF      = { { 'uel0106', 2 } },
-        Aeon     = { { 'ual0106', 2 } },
-        Cybran   = { { 'url0106', 2 } },
-        Seraphim = { { 'xsl0106', 2 } },
+        { count = 2, label = 'Light Assault Bot',
+          units = { UEF = 'uel0106', Aeon = 'ual0106', Cybran = 'url0106', Seraphim = 'xsl0106' } },
     },
 }
 
--- T1 Land Factory -> 1x T1 Tank (durable line unit)
+-- 1x T1 Tank
 DefSpawner {
-    name = 'Tanks',
+    key = 'tank',
+    name = 'Tank Spawner',
+    blurb = 'Durable line unit',
+    cost = 120,
+    health = 900,
     income = 0.8,
-    structures = { UEF = 'ueb0101', Aeon = 'uab0101', Cybran = 'urb0101', Seraphim = 'xsb0101' },
+    icon = 'icon_land1_directfire',
     spawns = {
-        UEF      = { { 'uel0201', 1 } },
-        Aeon     = { { 'ual0201', 1 } },
-        Cybran   = { { 'url0107', 1 } },
-        Seraphim = { { 'xsl0201', 1 } },
+        { count = 1, label = 'Tank',
+          units = { UEF = 'uel0201', Aeon = 'ual0201', Cybran = 'url0107', Seraphim = 'xsl0201' } },
     },
 }
 
--- T1 Point Defense -> 1x Mobile Artillery (counters massed chaff)
--- NOTE: the structure itself can still shoot; keep build zones out of weapon
--- range of the lane, or swap this proxy for something unarmed.
+-- 1x Mobile Light Artillery
 DefSpawner {
-    name = 'Artillery',
+    key = 'arty',
+    name = 'Artillery Spawner',
+    blurb = 'Outranges massed chaff',
+    cost = 100,
+    health = 600,
     income = 0.6,
-    structures = { UEF = 'ueb2101', Aeon = 'uab2101', Cybran = 'urb2101', Seraphim = 'xsb2101' },
+    icon = 'icon_land1_artillery',
     spawns = {
-        UEF      = { { 'uel0103', 1 } },
-        Aeon     = { { 'ual0103', 1 } },
-        Cybran   = { { 'url0103', 1 } },
-        Seraphim = { { 'xsl0103', 1 } },
+        { count = 1, label = 'Mobile Artillery',
+          units = { UEF = 'uel0103', Aeon = 'ual0103', Cybran = 'url0103', Seraphim = 'xsl0103' } },
     },
 }
 
--- TODO: more types — anti-air, shields-in-wave, tanky T2, experimentals as a
+-- 1x T1 Mobile AA. NOTE: these units are anti-air only (their weapon is
+-- RangeCategory UWRC_AntiAir), so they cannot engage anything on the ground.
+-- Until a spawner produces air units this is a dead purchase — see README.
+DefSpawner {
+    key = 'aa',
+    name = 'Anti-Air Spawner',
+    blurb = 'Escort cover; cannot hit ground targets',
+    cost = 110,
+    health = 600,
+    income = 0.5,
+    icon = 'icon_land1_antiair',
+    spawns = {
+        { count = 1, label = 'Mobile AA',
+          units = { UEF = 'uel0104', Aeon = 'ual0104', Cybran = 'url0104', Seraphim = 'xsl0104' } },
+    },
+}
+
+-- TODO: more types — air, shields-in-wave, tanky T2, experimentals as a
 -- late-game mass sink. Follow the same DefSpawner pattern.
 
 -- Category union of everything players are allowed to build; used to restrict
