@@ -1,2 +1,3 @@
 # Pre-rename snapshots of the map files — local scratch, not project history.
 backup/
+lua-examples/
