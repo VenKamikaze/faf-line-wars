@@ -52,6 +52,15 @@ local OVERRIDES = {
         BuildCostEnergy = 450,
     },
     {
+        -- T1 interceptors (air-to-air), the counter to a bomber-heavy opponent.
+        -- Stock 50m/2250e — same energy trap as the bomber against a 100 e/s
+        -- income and the round cap. 250 keeps the ~1:5 mass:energy ratio the
+        -- other units use (50 mass -> 250 energy), so an interceptor sits just
+        -- cheaper than a bomber (90m/450e) and you can react to an air push.
+        ids = { 'uea0102', 'uaa0102', 'ura0102', 'xsa0102' },
+        BuildCostEnergy = 250,
+    },
+    {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
         -- (hidden, invulnerable) on each Core at the start of every round holds
         -- this much, so the cap grows by this per round. Stock 500.
