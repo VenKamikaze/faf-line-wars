@@ -34,6 +34,7 @@ Factories = {
         name = 'Air Factory',
         byFaction = { 'ueb0102', 'uab0102', 'urb0102', 'xsb0102' },
         roles = {
+            { name = 'Interceptor',   byFaction = { 'uea0102', 'uaa0102', 'ura0102', 'xsa0102' } },
             { name = 'Attack Bomber', byFaction = { 'uea0103', 'uaa0103', 'ura0103', 'xsa0103' } },
         },
     },

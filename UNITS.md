@@ -54,6 +54,10 @@ stands in, so a factory sited in a teammate's lane reinforces that lane.
 
 | Role | Faction | Blueprint | Name | Mass | Energy | Health | Speed |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| Interceptor | UEF | `uea0102` | Cyclone | 50 | 250* | 295 | 15 |
+| Interceptor | Aeon | `uaa0102` | Conservator | 50 | 250* | 285 | 15 |
+| Interceptor | Cybran | `ura0102` | Prowler | 50 | 250* | 280 | 15 |
+| Interceptor | Seraphim | `xsa0102` | Ia-atha | 50 | 250* | 290 | 15 |
 | Attack Bomber | UEF | `uea0103` | Scorcher | 90 | 450* | 215 | 10 |
 | Attack Bomber | Aeon | `uaa0103` | Shimmer | 90 | 450* | 205 | 10 |
 | Attack Bomber | Cybran | `ura0103` | Zeus | 90 | 450* | 200 | 10 |
@@ -73,6 +77,10 @@ factories together.
 | 36 | 180 | Lobo (`uel0103`) | UEF | Mobile Artillery | Land Factory | 205 |
 | 36 | 180 | Medusa (`url0103`) | Cybran | Mobile Artillery | Land Factory | 140 |
 | 42 | 165 | Flare (`ual0106`) | Aeon | Light Assault Bot | Land Factory | 115 |
+| 50 | 250* | Conservator (`uaa0102`) | Aeon | Interceptor | Air Factory | 285 |
+| 50 | 250* | Cyclone (`uea0102`) | UEF | Interceptor | Air Factory | 295 |
+| 50 | 250* | Prowler (`ura0102`) | Cybran | Interceptor | Air Factory | 280 |
+| 50 | 250* | Ia-atha (`xsa0102`) | Seraphim | Interceptor | Air Factory | 290 |
 | 54 | 270 | Aurora (`ual0201`) | Aeon | Tank | Land Factory | 155 |
 | 54 | 180 | Zthuee (`xsl0103`) | Seraphim | Mobile Artillery | Land Factory | 170 |
 | 54 | 270 | Thaam (`xsl0201`) | Seraphim | Tank | Land Factory | 280 |
