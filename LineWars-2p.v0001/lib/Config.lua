@@ -109,7 +109,12 @@ EconomyTickSeconds = 1
 -- Waves
 --------------------------------------------------------------------------
 SpawnSpreadRadius = 4           -- units appear within this radius of the spawn marker
-InitialGraceSeconds = 5         -- pause after game start before round 1 begins
+-- The pause before round 1 is now the "Map start delay" lobby option
+-- (GetStartDelaySeconds, default 10s).
+
+-- "Allow air units from round" sentinel: this key means air is never buildable.
+-- Must match the 'Never' value key in LineWars-2p_options.lua.
+AirNeverRound = 9999
 
 --------------------------------------------------------------------------
 -- Factory-queue economy (see lib/FactoryQueue.lua and FACTORY-QUEUE-DESIGN.md).
@@ -144,6 +149,17 @@ end
 
 function GetCoreHealthMultiplier()
     return CoreBaseHealthMultiplier * (ScenarioInfo.Options.opt_lw_core_health or 1)
+end
+
+-- The round at which air factories/units unlock. 0 or 1 = available immediately;
+-- AirNeverRound = never. See lib/AirGate.lua.
+function GetAirFromRound()
+    return ScenarioInfo.Options.opt_lw_air_from_round or 3
+end
+
+-- Grace period (seconds) after the game loads before the first build round.
+function GetStartDelaySeconds()
+    return ScenarioInfo.Options.opt_lw_start_delay or 10
 end
 
 function Log(msg)

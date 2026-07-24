@@ -15,7 +15,13 @@ end
 
 local function RoundLoop()
     local LW = ScenarioInfo.LW
-    WaitSeconds(Config.InitialGraceSeconds)
+    -- "Map start delay" lobby option: hold the build rounds until the grace
+    -- period elapses so players can settle in / position the ACU first.
+    local startDelay = Config.GetStartDelaySeconds()
+    if startDelay > 0 then
+        AnnounceMinor('Game starts in ' .. startDelay .. ' seconds — position your ACU')
+        WaitSeconds(startDelay)
+    end
     while not LW.GameOver do
         local t = Config.GetRoundSeconds()
         -- Round 1 keeps the bare base cap (216); +100 storage starts at round 2,
