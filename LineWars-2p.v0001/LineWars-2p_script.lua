@@ -15,6 +15,7 @@ local WinCondition = import(DIR .. 'lib/WinCondition.lua')
 local AcuRules = import(DIR .. 'lib/AcuRules.lua')
 local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
+local AirGate = import(DIR .. 'lib/AirGate.lua')
 
 function OnPopulate()
     ScenarioUtils.InitializeArmies()
@@ -23,6 +24,13 @@ end
 function OnStart(self)
     -- The script owns win/loss; disable the standard skirmish conditions.
     ScenarioInfo.Options.Victory = 'sandbox'
+
+    -- The .scmap heightmap is 512x512, but play is confined to the 512x256 band
+    -- (AREA_1 = RECTANGLE(0,128,512,384)). Without this, players and AI can build
+    -- in the black void above/below the lanes. voFlag=false skips the expansion
+    -- camera pan + "map expansion" voiceover. All lane/Core/spawn markers sit
+    -- inside this rectangle.
+    ScenarioFramework.SetPlayableArea('AREA_1', false)
 
     -- Shared game state, reachable from every module.
     ScenarioInfo.LW = {
@@ -78,6 +86,7 @@ function OnStart(self)
     WinCondition.SpawnCores()
     CoreStorage.Start()    -- inits LW.Storage; must follow SpawnCores, precede RoundManager
     FactoryQueue.Start()   -- starts the queue poll; players build their own factories
+    AirGate.Start()        -- locks air until the chosen round; must follow the restriction loop
     Economy.Start()
     RoundManager.Start()
     AcuRules.Start()

@@ -254,6 +254,14 @@ lane losses and victory stay global.
 | Income model | `opt_lw_income_model` | Spawner income, Flat scaling |
 | Round length | `opt_lw_round_time` | 60s, 45s, 90s, 120s |
 | Core toughness | `opt_lw_core_health` | Normal, x2, x4 |
+| Allow air units from round | `opt_lw_air_from_round` | 3, Immediate, 1, 2, 4, 5, 10, Never |
+| Map start delay | `opt_lw_start_delay` | 10s, None, 5s, 15s, 30s, 60s, 120s |
+
+Air gating (`lib/AirGate.lua`) locks the air factory and air units behind an
+`AddRestriction`/`RemoveRestriction` on the build menu (the King of the Hill
+tech-phase pattern), lifted when the round counter reaches the chosen round.
+`Never` = 9999 sentinel (`Config.AirNeverRound`). The start delay replaces the
+old fixed `InitialGraceSeconds`.
 
 Read via accessors in `Config.lua` that supply defaults, because
 `ScenarioInfo.Options` may be missing keys on offline/sandbox starts.
