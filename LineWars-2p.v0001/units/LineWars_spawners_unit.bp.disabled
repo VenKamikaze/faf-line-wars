@@ -1,0 +1,112 @@
+-- Defines the spawner structures players build, as clones of the T1 Power
+-- Generator with our own id, cost, health and description.
+--
+-- FAF's blueprint loader scans the current map's directory for *.bp files and
+-- runs them after the game files but before mods — see LoadBlueprints() in
+-- lua/system/Blueprints.lua, which reads preGameData.CurrentMapDir out of
+-- Game.prefs. It does this on the sim side *and* the UI side, so a map can add
+-- units without shipping a mod.
+--
+-- Why clone rather than merge into stock structures:
+--   * StoreBlueprint() only merges when the id already exists and Merge is set;
+--     an unseen id is simply stored, so a map may define new units outright.
+--     UnitBlueprint() calls SetShortId(), which honours an explicit BlueprintId.
+--   * A merge can add and change fields but cannot *delete* them. A clone owns
+--     the whole table, so we can drop the power generator's DeathWeapon (250
+--     damage, radius 2) — spawners are packed tightly behind the line and
+--     chain-detonating your own economy is not a mechanic we want.
+--   * Spawner types are no longer limited to the supply of inert stock
+--     structures, and each prices independently of whatever it impersonated.
+--
+-- The cost: the 48x48 build-button background is looked up as
+-- '/icons/units/<blueprint id>_icon.dds' (construction.lua), hardcoded to the
+-- id with no blueprint field to redirect it, and only mods and skins mount at
+-- the VFS root — map folders mount at /maps/<name>/. Our ids therefore fall
+-- back to default_icon.dds. StrategicIconName *is* a blueprint field and the
+-- button draws it as an overlay, so spawners share one backdrop and are told
+-- apart by the glyph of the unit they produce, plus the tooltip.
+--
+-- Everything is derived from lib/SpawnerTypes.lua so the text can never drift
+-- from the balance table. This runs long before the sim, hence doscript()
+-- rather than import(); if it fails, the loader's safecall logs it — and the
+-- spawners will not exist at all, so check the log for this file's name.
+
+-- Locate the map directory from this file's own path rather than hardcoding it,
+-- so renaming the map folder cannot silently drop the spawners.
+--
+-- Careful: debug.getinfo returns the *OS* path, backslash-separated under wine
+-- ('z:\home\...\linewars-2p.v0001\units\linewars_spawners_unit.bp'), while
+-- doscript resolves through the VFS, where the map is mounted at
+-- /maps/<folder>/. So we take only the folder name and rebuild a VFS path;
+-- stripping the tail off the OS path yields something doscript cannot open.
+local here = debug.getinfo(1, 'S').source
+if string.sub(here, 1, 1) == '@' then
+    here = string.sub(here, 2)
+end
+local folder = string.match(string.gsub(here, '\\', '/'), '([^/]+)/[^/]+/[^/]+$')
+local mapDir = '/maps/' .. string.lower(folder or 'linewars-2p.v0001')
+
+local env = setmetatable({}, { __index = _G })
+doscript(mapDir .. '/lib/SpawnerTypes.lua', env)
+
+-- Read a stock blueprint's table without storing it: the stock .bp files are a
+-- single UnitBlueprint{} call, so shadowing that name in the environment hands
+-- us the table. Re-running this per clone yields a fresh table each time, so
+-- the clones never share sub-tables and no deep copy is needed.
+local function StockBlueprint(id)
+    local captured
+    local stockEnv = setmetatable({
+        UnitBlueprint = function(bp) captured = bp end,
+    }, { __index = _G })
+    local upper = string.upper(id)
+    doscript('/units/' .. upper .. '/' .. upper .. '_unit.bp', stockEnv)
+    return captured
+end
+
+for id, def in env.Spawners do
+    local bp = StockBlueprint(def.chassis)
+
+    bp.BlueprintId = id
+    -- Keep the inherited bp.Source pointing at the stock power generator. It is
+    -- not just bookkeeping: the engine derives asset paths from it. The stock
+    -- Display.Mesh carries no MeshName, so ExtractMeshBlueprint() builds the
+    -- mesh id as gsub(bp.Source, '_[a-z]+%.bp$', '_mesh') and resolves the .scm
+    -- LODs relative to it, and the unit's script is likewise found as
+    -- <source dir>/<id>_script.lua. Clearing Source points both at our own map
+    -- folder, where no such files exist: the LODs come back nil ("Invalid type
+    -- for RMeshBlueprintLOD"), the unit renders as placeholder geometry, and
+    -- selecting it to place hangs the game.
+
+    bp.Description = def.description
+    bp.StrategicIconName = def.icon
+    bp.General.UnitName = def.name
+
+    -- Spawners are shells: all income is script-granted (lib/Economy.lua), so
+    -- strip the chassis' real energy production.
+    bp.Economy.ProductionPerSecondEnergy = 0
+    bp.Economy.ProductionPerSecondMass = 0
+    bp.Economy.BuildCostMass = def.cost
+    bp.Economy.BuildCostEnergy = def.cost * 10
+    bp.Economy.BuildTime = def.cost * 1.67
+    -- Inherited as { 'ueb1101' }, which would let any spawner's wreck discount
+    -- any other. Point each clone at itself.
+    bp.Economy.RebuildBonusIds = { id }
+
+    bp.Defense.Health = def.health
+    bp.Defense.MaxHealth = def.health
+
+    -- Drop the power generator's death explosion, and the category that marks
+    -- it as one, so densely packed spawners do not chain-detonate.
+    -- Empty table, not nil: Unit:DoDeathWeapon() iterates bp.Weapon without a
+    -- guard, so nil would throw every time a spawner dies.
+    bp.Weapon = {}
+    local categories = {}
+    for i, cat in bp.Categories do
+        if cat ~= 'VOLATILE' and cat ~= 'ENERGYPRODUCTION' then
+            table.insert(categories, cat)
+        end
+    end
+    bp.Categories = categories
+
+    UnitBlueprint(bp)
+end

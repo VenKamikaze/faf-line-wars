@@ -1,60 +1,47 @@
--- Spawns each player's wave at round end and sends it marching down the lane.
+-- Spawns each player's waves at round end and sends them marching down a lane.
+--
+-- A player has one wave per lane they own a factory in — normally just their own
+-- lane, but a factory built in a teammate's lane spawns its wave THERE (see
+-- FactoryQueue.LaneForPosition). Reinforcements still belong to the builder's own
+-- ARMY_WAVE_n, which is allied to that whole side, so they fight alongside the
+-- teammate's wave rather than beside it.
 local ScenarioUtils = import('/lua/sim/ScenarioUtilities.lua')
 local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
-local SpawnerTypes = import(DIR .. 'lib/SpawnerTypes.lua')
+local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 
--- Returns the list of unit blueprints this army's completed spawners produce.
-function RollWave(armyName)
-    local brain = GetArmyBrain(armyName)
-    local toSpawn = {}
-    local structures = brain:GetListOfUnits(categories.STRUCTURE, false)
-    for i, s in structures do
-        if not s.Dead and s:GetFractionComplete() == 1 then
-            local def = SpawnerTypes.Spawners[s:GetUnitId()]
-            if def then
-                for j, entry in def.spawns do
-                    for n = 1, entry[2] do
-                        table.insert(toSpawn, entry[1])
-                    end
-                end
-            end
-        end
-    end
-    return toSpawn
+-- The lane-grouped standing wave this army's factories will spawn this round
+-- (committed and already paid for): { { lane = n, units = { bp, ... } }, ... }.
+function RollWaves(armyName)
+    return FactoryQueue.WavesForArmy(armyName)
 end
 
--- The ordered list of positions a wave from this army marches through:
--- optional own-side waypoints, then the enemy Core (or the enemy Core marker
--- if the opposing slot is empty).
-local function GetMarchPath(armyName)
-    local info = Config.PlayerArmies[armyName]
+-- The ordered list of positions a wave marching down this lane from this side
+-- passes through: optional waypoints, then the enemy Core (or the enemy Core
+-- marker if the opposing slot is empty).
+local function GetMarchPath(lane, side)
     local path = {}
     local n = 1
-    while Config.GetMarker(Config.WaypointMarker(info.lane, info.side, n)) do
-        table.insert(path, ScenarioUtils.MarkerToPosition(Config.WaypointMarker(info.lane, info.side, n)))
+    while Config.GetMarker(Config.WaypointMarker(lane, side, n)) do
+        table.insert(path, ScenarioUtils.MarkerToPosition(Config.WaypointMarker(lane, side, n)))
         n = n + 1
     end
-    local enemySide = Config.OppositeSide[info.side]
-    local enemyArmy = Config.EnemyOf(armyName)
+    local enemySide = Config.OppositeSide[side]
+    local enemyArmy = Config.ArmyInLane(lane, enemySide)
     local enemyCore = enemyArmy and ScenarioInfo.LW.Cores[enemyArmy]
     if enemyCore and not enemyCore.Dead then
         table.insert(path, enemyCore:GetPosition())
     else
-        table.insert(path, ScenarioUtils.MarkerToPosition(Config.CoreMarker(info.lane, enemySide)))
+        table.insert(path, ScenarioUtils.MarkerToPosition(Config.CoreMarker(lane, enemySide)))
     end
     return path
 end
 
-function SpawnWaveForArmy(armyName)
-    local toSpawn = RollWave(armyName)
-    if table.getn(toSpawn) == 0 then
-        Config.Log(armyName .. ' has no spawners; skipping wave')
-        return
-    end
-
-    local info = Config.PlayerArmies[armyName]
-    local marker = ScenarioUtils.MarkerToPosition(Config.SpawnMarker(info.lane, info.side))
+-- Spawn one wave: `units` blueprints at this lane's spawn marker, marching down
+-- it. The wave belongs to the builder, not to whoever holds the lane.
+local function SpawnWave(armyName, lane, toSpawn)
+    local side = Config.PlayerArmies[armyName].side
+    local marker = ScenarioUtils.MarkerToPosition(Config.SpawnMarker(lane, side))
     local waveArmyName = Config.WaveArmyOf(armyName)
     local r = Config.SpawnSpreadRadius
 
@@ -69,7 +56,8 @@ function SpawnWaveForArmy(armyName)
             WARN('LineWars: failed to spawn ' .. bp .. ' for ' .. waveArmyName)
         end
     end
-    Config.Log('spawned ' .. table.getn(units) .. ' units for ' .. armyName)
+    Config.Log('spawned ' .. table.getn(units) .. ' units for ' .. armyName ..
+        ' in lane ' .. lane)
     if table.getn(units) == 0 then
         return
     end
@@ -77,13 +65,28 @@ function SpawnWaveForArmy(armyName)
     local waveBrain = GetArmyBrain(waveArmyName)
     local platoon = waveBrain:MakePlatoon('', '')
     waveBrain:AssignUnitsToPlatoon(platoon, units, 'Attack', 'GrowthFormation')
-    for i, pos in GetMarchPath(armyName) do
+    for i, pos in GetMarchPath(lane, side) do
         platoon:AggressiveMoveToLocation(pos)
+    end
+end
+
+function SpawnWaveForArmy(armyName)
+    local waves = RollWaves(armyName)
+    if table.getn(waves) == 0 then
+        Config.Log(armyName .. ' has nothing queued; skipping wave')
+        return
+    end
+    for i, wave in waves do
+        if table.getn(wave.units) > 0 then
+            SpawnWave(armyName, wave.lane, wave.units)
+        end
     end
 end
 
 -- Safety net: waves can end up idle (orders completed while enemies remain,
 -- pathing hiccups). Re-issue march orders to any idle wave unit periodically.
+-- Idle units are re-pathed down the lane they are standing in, so a wave sent to
+-- reinforce a teammate keeps fighting there rather than being dragged home.
 function StartIdleWatchdog()
     ForkThread(function()
         local LW = ScenarioInfo.LW
@@ -91,19 +94,22 @@ function StartIdleWatchdog()
             WaitSeconds(10)
             for i, armyName in LW.ActivePlayers do
                 if not LW.Dead[armyName] then
+                    local side = Config.PlayerArmies[armyName].side
                     local waveBrain = GetArmyBrain(Config.WaveArmyOf(armyName))
-                    local idle = {}
-                    local waveUnits = waveBrain:GetListOfUnits(categories.ALLUNITS, false)
-                    for j, u in waveUnits do
+                    -- Group the idle units by the lane they are currently in, so
+                    -- each gets the right march path.
+                    local idleByLane = {}
+                    for j, u in waveBrain:GetListOfUnits(categories.ALLUNITS, false) do
                         if not u.Dead and u:IsIdleState() then
-                            table.insert(idle, u)
+                            local lane = FactoryQueue.LaneForPosition(armyName, u:GetPosition())
+                            idleByLane[lane] = idleByLane[lane] or {}
+                            table.insert(idleByLane[lane], u)
                         end
                     end
-                    if table.getn(idle) > 0 then
+                    for lane, idle in idleByLane do
                         local platoon = waveBrain:MakePlatoon('', '')
                         waveBrain:AssignUnitsToPlatoon(platoon, idle, 'Attack', 'GrowthFormation')
-                        local path = GetMarchPath(armyName)
-                        for j, pos in path do
+                        for j, pos in GetMarchPath(lane, side) do
                             platoon:AggressiveMoveToLocation(pos)
                         end
                     end

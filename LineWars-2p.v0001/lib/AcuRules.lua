@@ -56,7 +56,9 @@ local function InZone(z, pos)
 end
 
 -- Remove this army's structures inside no-build zones, refunding what was
--- actually invested so a misclick isn't a death sentence.
+-- actually invested so a misclick isn't a death sentence. Factories are NOT
+-- exempt — players site their own now, and a factory is exactly the thing you'd
+-- wall a lane with. FactoryQueue refunds the dead factory's paid queue too.
 local function EnforceNoBuild(armyName)
     if table.getn(NoBuildZones()) == 0 then
         return
@@ -64,7 +66,7 @@ local function EnforceNoBuild(armyName)
     local LW = ScenarioInfo.LW
     local brain = GetArmyBrain(armyName)
     for i, s in brain:GetListOfUnits(categories.STRUCTURE, false) do
-        if not s.Dead and s ~= LW.Cores[armyName] then
+        if not s.Dead and s ~= LW.Cores[armyName] and not s.LineWarsStorage then
             local pos = s:GetPosition()
             for j, z in NoBuildZones() do
                 if InZone(z, pos) then
@@ -73,7 +75,8 @@ local function EnforceNoBuild(armyName)
                     brain:GiveResource('Mass', (eco.BuildCostMass or 0) * frac)
                     brain:GiveResource('Energy', (eco.BuildCostEnergy or 0) * frac)
                     s:Destroy()
-                    PrintText('No building in the lane!', 14, 'ffff2222', 4, 'center')
+                    Config.PrintTextFor(armyName, 'No building in the lane!',
+                        14, 'ffff2222', 4, 'center')
                     break
                 end
             end
@@ -93,7 +96,7 @@ local function EnforceMidline(armyName, acu)
         local x = own[1] + dx / len * Config.MidlineReturnOffset
         local z = own[3] + dz / len * Config.MidlineReturnOffset
         Warp(acu, { x, GetTerrainHeight(x, z), z })
-        PrintText(GetArmyBrain(armyName).Nickname .. "'s ACU crossed the midline and was sent home!",
+        Config.PrintTextFor(armyName, 'Your ACU crossed the midline and was sent home!',
             14, 'ffff2222', 4, 'center')
     end
 end

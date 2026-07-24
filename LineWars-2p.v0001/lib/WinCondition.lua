@@ -6,6 +6,7 @@ local ScenarioFramework = import('/lua/ScenarioFramework.lua')
 local VictoryLib = import('/lua/victory.lua')
 local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
+local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 
 local function ArmyOfCore(coreUnit)
     for armyName, core in ScenarioInfo.LW.Cores do
@@ -63,6 +64,7 @@ local function OnCoreKilled(coreUnit)
     LW.Dead[armyName] = true
     local info = Config.PlayerArmies[armyName]
     PrintText(GetArmyBrain(armyName).Nickname .. ' has lost lane ' .. info.lane .. '!', 20, 'ffff2222', 10, 'center')
+    CoreStorage.CleanupFor(armyName)   -- remove the hidden storage units stacked on the dead Core
     KillArmyUnits(Config.WaveArmyOf(armyName))
     KillArmyUnits(armyName)
     GetArmyBrain(armyName):OnDefeat()

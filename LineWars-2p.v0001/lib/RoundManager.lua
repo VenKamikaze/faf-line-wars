@@ -3,6 +3,7 @@
 local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
+local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 
 local function Announce(text)
     PrintText(text, 20, 'ffFFD700', 8, 'center')
@@ -17,6 +18,11 @@ local function RoundLoop()
     WaitSeconds(Config.InitialGraceSeconds)
     while not LW.GameOver do
         local t = Config.GetRoundSeconds()
+        -- Round 1 keeps the bare base cap (216); +100 storage starts at round 2,
+        -- so the cap is 216 / 316 / 416 / ... at rounds 1 / 2 / 3 / ...
+        if LW.Round > 1 then
+            CoreStorage.GrantForRound(LW.Round)   -- +storage, before players bank
+        end
         Announce('Round ' .. LW.Round .. ' — build phase (' .. t .. 's)')
         if t > 30 then
             WaitSeconds(t - 30)
