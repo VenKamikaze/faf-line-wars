@@ -61,6 +61,18 @@ local OVERRIDES = {
         BuildCostEnergy = 250,
     },
     {
+        -- T2 land factory = the tier-2 upgrade cost. FactoryQueue charges this
+        -- (read from the target building's blueprint) when a player buys the
+        -- upgrade, then swaps the building in place. Stock 1410m/11200e is
+        -- unreachable under the round cap, so it is cheapened to a meaningful but
+        -- affordable investment; storage zeroed (stock 160) so upgrading doesn't
+        -- quietly raise the cap. Tune here.
+        ids = { 'ueb0201', 'uab0201', 'urb0201', 'xsb0201' },
+        BuildCostMass = 250,
+        BuildCostEnergy = 1200,
+        StorageMass = 0,
+    },
+    {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
         -- (hidden, invulnerable) on each Core at the start of every round holds
         -- this much, so the cap grows by this per round. Stock 500.

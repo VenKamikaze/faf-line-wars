@@ -38,7 +38,12 @@ def parse_id_list(body):
 
 
 def parse_unit_types(path):
-    """-> [ {kind, name, factories: [id], roles: [ {name, units: [id]} ]} ]"""
+    """-> [ {kind, name, factories: [id], tiers: {n: [id]}, roles: [ {name, tier, units: [id]} ]} ]
+
+    `factories` are the tier-1 buildings (faction-aligned); `tiers` maps a tier
+    number to the buildings a player upgrades into at that tier. Each role carries
+    the building `tier` required to queue it.
+    """
     text = strip_lua_comments(open(path, encoding="utf-8").read())
     header = re.compile(
         r"kind\s*=\s*'([A-Z]+)'\s*,\s*name\s*=\s*'([^']+)'\s*,"
@@ -53,16 +58,27 @@ def parse_unit_types(path):
     for i, m in enumerate(matches):
         tail_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         tail = text[m.end():tail_end]
+        # Everything before `roles =` holds the upgrade tiers; split so a role's
+        # own braces can't be mistaken for a `[n] = { ids }` tier entry.
+        pre_roles = re.split(r"\broles\s*=", tail, maxsplit=1)[0]
+        tiers = {
+            int(tn): parse_id_list(tb)
+            for tn, tb in re.findall(r"\[(\d+)\]\s*=\s*\{([^}]*)\}", pre_roles)
+        }
         roles = [
-            {"name": rn, "units": parse_id_list(rb)}
-            for rn, rb in re.findall(
-                r"name\s*=\s*'([^']+)'\s*,\s*byFaction\s*=\s*\{([^}]*)\}", tail
+            {"name": rn, "tier": int(rt or 1), "units": parse_id_list(rb)}
+            for rn, rt, rb in re.findall(
+                r"name\s*=\s*'([^']+)'\s*,"
+                r"(?:\s*tier\s*=\s*(\d+)\s*,)?"
+                r"\s*byFaction\s*=\s*\{([^}]*)\}",
+                tail,
             )
         ]
         out.append({
             "kind": m.group(1),
             "name": m.group(2),
             "factories": parse_id_list(m.group(3)),
+            "tiers": tiers,
             "roles": roles,
         })
     return out
@@ -163,7 +179,8 @@ def main():
     stock = load_stock(os.path.expanduser(args.gamedata))
 
     for uid in [u for k in kinds for r in k["roles"] for u in r["units"]] + \
-               [f for k in kinds for f in k["factories"]]:
+               [f for k in kinds for f in k["factories"]] + \
+               [f for k in kinds for ids in k["tiers"].values() for f in ids]:
         if uid not in stock:
             sys.exit("gen-units-md: %s is not a real blueprint id" % uid)
 
@@ -186,30 +203,35 @@ def main():
 
     L.append("## Factories")
     L.append("")
-    L.append("Built by the ACU. Each one is an independent queue bound to the lane it")
-    L.append("stands in, so a factory sited in a teammate's lane reinforces that lane.")
+    L.append("Built by the ACU (Tech 1). Each one is an independent queue bound to the")
+    L.append("lane it stands in, so a factory sited in a teammate's lane reinforces it.")
+    L.append("Higher tiers are the native factory upgrade (its Mass/Energy is the upgrade")
+    L.append("cost Line Wars charges); upgrading unlocks that tier's units.")
     L.append("")
-    L.append("| Factory | Faction | Blueprint | Mass | Energy | Health |")
-    L.append("| --- | --- | --- | ---: | ---: | ---: |")
+    L.append("| Factory | Tier | Faction | Blueprint | Mass | Energy | Health |")
+    L.append("| --- | ---: | --- | --- | ---: | ---: | ---: |")
     for k in kinds:
-        for i, uid in enumerate(k["factories"]):
-            L.append("| %s | %s | `%s` | %s | %s | %s |" % (
-                k["name"], factions[i], uid,
-                cost(uid, "mass", "BuildCostMass", stock, overrides),
-                cost(uid, "energy", "BuildCostEnergy", stock, overrides),
-                num(stock[uid].get("health")),
-            ))
+        levels = [(1, k["factories"])] + sorted(k["tiers"].items())
+        for tier, ids in levels:
+            for i, uid in enumerate(ids):
+                L.append("| %s | %s | %s | `%s` | %s | %s | %s |" % (
+                    k["name"], tier, factions[i], uid,
+                    cost(uid, "mass", "BuildCostMass", stock, overrides),
+                    cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                    num(stock[uid].get("health")),
+                ))
     L.append("")
 
     for k in kinds:
         L.append("## %s units" % k["name"])
         L.append("")
-        L.append("| Role | Faction | Blueprint | Name | Mass | Energy | Health | Speed |")
-        L.append("| --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
-        for role in k["roles"]:
+        L.append("| Role | Tier | Faction | Blueprint | Name | Mass | Energy | Health | Speed |")
+        L.append("| --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: |")
+        for role in sorted(k["roles"], key=lambda r: r["tier"]):
             for i, uid in enumerate(role["units"]):
-                L.append("| %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
-                    role["name"], factions[i], uid, stock[uid].get("name") or "?",
+                L.append("| %s | %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
+                    role["name"], role["tier"], factions[i], uid,
+                    stock[uid].get("name") or "?",
                     cost(uid, "mass", "BuildCostMass", stock, overrides),
                     cost(uid, "energy", "BuildCostEnergy", stock, overrides),
                     num(stock[uid].get("health")),

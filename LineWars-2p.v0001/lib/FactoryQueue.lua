@@ -186,19 +186,42 @@ local function Adopt(armyName, records, factory)
     end
 end
 
--- This factory's visible queue as { blueprintId -> count }.
+-- Command-queue order types we care about (sim/commands/shared.lua): a unit
+-- queued in a factory is a BuildFactory order; the native upgrade button issues
+-- an Upgrade order carrying the target building as its blueprintId.
+local BUILD_FACTORY_COMMAND = 7
+local UPGRADE_COMMAND       = 27
+
+-- This factory's visible queue of UNITS as { blueprintId -> count }. Upgrade
+-- orders are deliberately excluded (see UpgradeTargetInQueue) so the unit diff
+-- never mistakes an upgrade for a wave unit.
 local function SnapshotOf(factory)
     local counts = {}
     local queue = factory:GetCommandQueue()
     if queue then
         for i, order in queue do
             local bp = order.blueprintId
-            if bp then
+            if bp and order.commandType == BUILD_FACTORY_COMMAND then
                 counts[bp] = (counts[bp] or 0) + (order.count or 1)
             end
         end
     end
     return counts
+end
+
+-- The target building of an upgrade order sitting in this factory's queue, or
+-- nil. On a pinned factory the order never progresses (build rate 0 + paused),
+-- so it waits here until we fulfil or reject it.
+local function UpgradeTargetInQueue(factory)
+    local queue = factory:GetCommandQueue()
+    if queue then
+        for i, order in queue do
+            if order.commandType == UPGRADE_COMMAND and order.blueprintId then
+                return order.blueprintId
+            end
+        end
+    end
+    return nil
 end
 
 local function SameCounts(a, b)
@@ -221,9 +244,77 @@ local function RebuildQueue(factory, committed)
     end
 end
 
+-- A player clicked the native upgrade button on a factory. The order sits at the
+-- front of the pinned queue and never builds on its own, so we fulfil it: charge
+-- the tier cost (read from the target building's blueprint, same UnitCost path as
+-- everything else) and swap the building for its next tier IN PLACE, carrying the
+-- lane binding and the paid wave across. Instant — there is no cancel window, so
+-- no upgrade-specific refund path is needed.
+--
+-- `records` is this army's factory table; we retire the old record and add the
+-- new building's, so the caller must iterate a captured key list (see Reconcile),
+-- not the live table.
+local function TryUpgrade(armyName, brain, records, rec, targetBp)
+    local f = rec.factory
+
+    -- Only honour the exact next-tier upgrade for this building. Anything else
+    -- (a stale or unexpected order) is dropped, leaving the paid unit queue as-is.
+    if targetBp ~= UnitTypes.UpgradeTargetFor(f:GetUnitId()) then
+        RebuildQueue(f, rec.committed)
+        rec.rebuildPending = true
+        return
+    end
+
+    local m, e = UnitCost(targetBp)
+    local shortOf
+    if brain:GetEconomyStored('MASS') < m then
+        shortOf = 'mass'
+    elseif brain:GetEconomyStored('ENERGY') < e then
+        shortOf = 'energy'
+    end
+    if shortOf then
+        Config.PrintTextFor(armyName, 'Not enough ' .. shortOf .. ' to upgrade',
+            14, 'ffff2222', 2, 'center')
+        RebuildQueue(f, rec.committed)   -- drop the unaffordable upgrade order
+        rec.rebuildPending = true
+        return
+    end
+
+    local pos = f:GetPosition()
+    local newF = CreateUnitHPR(targetBp, armyName, pos[1], pos[2], pos[3], 0, 0, 0)
+    if not newF then
+        WARN('LineWars: upgrade CreateUnitHPR failed for ' .. tostring(targetBp))
+        RebuildQueue(f, rec.committed)
+        rec.rebuildPending = true
+        return
+    end
+
+    brain:TakeResource('Mass', m)
+    brain:TakeResource('Energy', e)
+    Pin(newF)
+
+    local moved = {
+        factory = newF,
+        lane = rec.lane,
+        kind = UnitTypes.KindOfFactory(targetBp),
+        committed = rec.committed,
+        rebuildPending = true,   -- verify the re-issued wave landed next tick
+    }
+    records[newF] = moved
+    RebuildQueue(newF, rec.committed)   -- re-issue the paid wave onto the new building
+
+    records[f] = nil
+    f:Destroy()
+
+    Config.Log(armyName .. ' upgraded a lane ' .. rec.lane .. ' factory to ' ..
+        targetBp .. ' (charged m=' .. m .. ' e=' .. e .. ')')
+    Config.PrintTextFor(armyName, 'Factory upgraded!', 14, 'ff44ff44', 2, 'center')
+end
+
 -- Reconcile one factory's visible queue with what its owner has actually paid
 -- for.
 --
+--   * a pending upgrade order is fulfilled first (TryUpgrade);
 --   * cancellations (queue now has fewer of a unit than we've charged for) are
 --     refunded;
 --   * additions are charged one unit at a time, and only if the player can fully
@@ -235,9 +326,17 @@ end
 -- A rejection is undone by rebuilding this factory's queue from its own paid set,
 -- scoped to the single offending factory so other factories — and their lanes —
 -- are untouched.
-local function ReconcileFactory(armyName, brain, rec)
+local function ReconcileFactory(armyName, brain, records, rec)
     local f = rec.factory
     Pin(f)
+
+    -- Fulfil a pending upgrade before touching the unit queue: the swap re-issues
+    -- the paid wave onto the new building and retires this record.
+    local upgradeTo = UpgradeTargetInQueue(f)
+    if upgradeTo then
+        TryUpgrade(armyName, brain, records, rec, upgradeTo)
+        return
+    end
 
     local snapshot = SnapshotOf(f)
 
@@ -355,8 +454,19 @@ local function Reconcile(armyName)
         end
     end
 
+    -- Capture the current factories before reconciling: an upgrade swap mutates
+    -- `records` (retires the old building, adds the new tier), and adding keys to
+    -- a table mid-traversal is unsafe. The new building isn't reconciled until
+    -- next tick, which is fine — it's freshly pinned with its wave re-issued.
+    local flist = {}
     for f, rec in records do
-        ReconcileFactory(armyName, brain, rec)
+        table.insert(flist, f)
+    end
+    for i, f in flist do
+        local rec = records[f]
+        if rec then
+            ReconcileFactory(armyName, brain, records, rec)
+        end
     end
 
     PurgeStrayUnits(brain)
