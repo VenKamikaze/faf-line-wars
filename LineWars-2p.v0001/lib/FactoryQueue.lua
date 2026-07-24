@@ -433,6 +433,23 @@ local function PurgeStrayUnits(brain)
     end
 end
 
+-- `records` is keyed by the factory unit itself, and iteration order over a
+-- table keyed by unit userdata follows the hash of the engine handle — which
+-- differs per client, so `for f in records` is NOT deterministic across
+-- machines. Any code that turns that order into sim state (the round's wave
+-- spawn list, or the order factories are charged in when the economy is tight)
+-- would therefore diverge between clients and desync. GetEntityId() is a synced
+-- per-unit id (identical on every client), so sorting on it gives every client
+-- the same factory order to iterate.
+local function SortedFactories(records)
+    local flist = {}
+    for f, rec in records do
+        table.insert(flist, f)
+    end
+    table.sort(flist, function(a, b) return a:GetEntityId() < b:GetEntityId() end)
+    return flist
+end
+
 local function Reconcile(armyName)
     local LW = ScenarioInfo.LW
     local brain = GetArmyBrain(armyName)
@@ -458,11 +475,9 @@ local function Reconcile(armyName)
     -- `records` (retires the old building, adds the new tier), and adding keys to
     -- a table mid-traversal is unsafe. The new building isn't reconciled until
     -- next tick, which is fine — it's freshly pinned with its wave re-issued.
-    local flist = {}
-    for f, rec in records do
-        table.insert(flist, f)
-    end
-    for i, f in flist do
+    -- Sorted, not raw-iterated, so a tight-economy tick charges factories in the
+    -- same order on every client (see SortedFactories).
+    for i, f in SortedFactories(records) do
         local rec = records[f]
         if rec then
             ReconcileFactory(armyName, brain, records, rec)
@@ -489,22 +504,31 @@ end
 -- Persistent — not cleared here.
 function WavesForArmy(armyName)
     local records = ScenarioInfo.LW.Factories[armyName] or {}
+    -- Build each lane's unit list in a synced factory order. WaveSpawner spawns
+    -- these with a Random() position offset per unit, so a client-dependent order
+    -- would give the same wave different positions (and entity ids) on each
+    -- client — the desync. Sorting the factories by entity id fixes the order;
+    -- lanes and each factory's committed set (integer/string keys) already
+    -- iterate deterministically.
     local byLane = {}
-    for f, rec in records do
+    local laneOrder = {}
+    for i, f in SortedFactories(records) do
+        local rec = records[f]
         local units = byLane[rec.lane]
         if not units then
             units = {}
             byLane[rec.lane] = units
+            table.insert(laneOrder, rec.lane)
         end
         for bp, n in rec.committed do
-            for i = 1, n do
+            for k = 1, n do
                 table.insert(units, bp)
             end
         end
     end
     local waves = {}
-    for lane, units in byLane do
-        table.insert(waves, { lane = lane, units = units })
+    for i, lane in laneOrder do
+        table.insert(waves, { lane = lane, units = byLane[lane] })
     end
     return waves
 end
