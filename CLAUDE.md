@@ -14,7 +14,7 @@ Read these rather than re-deriving; each is current and cited.
 
 - `luac5.1 -p <file>` — syntax-checks `.lua` and `.bp`; the only local verification that exists. Run before every sync.
 - Nothing else is locally testable: behaviour must be confirmed by Kamikaze in-game. Do not claim a change works.
-- `deployed-map` is a symlink to a SEPARATE copy. Code flows repo→deployed (`cp lib/*.lua LineWars-2p_script.lua units/*.bp`); `.scmap`/`_save.lua` flow deployed→repo (authored in FAFMapEditor) — never overwrite those.
+- `deployed-map` is a symlink to a SEPARATE copy. Code flows repo→deployed; `_save.lua`/`_scenario.lua`/`.scmap` flow deployed→repo (authored in FAFMapEditor). NEVER blanket-copy `*.lua` — it clobbers those three. Use the guarded sync in README "Development workflow" (copies code only; `cmp`-checks each editor-authored file and warns on stderr + skips when deployed differs). Kamikaze keeps a pre-edit deployed snapshot in `/tmp/dpm/`.
 - `python3 tools/gen-units-md.py` — regenerates `UNITS.md` after editing `lib/UnitTypes.lua` or `units/LineWars_units.bp`.
 
 ## Debugging

@@ -25,7 +25,7 @@ enable. Keeping it that way constrains some of the design; see
 - [x] Factory-queue model replaces spawner structures (`lib/FactoryQueue.lua`)
 - [x] Per-round storage growth (`lib/CoreStorage.lua`, 216 / 316 / 416 …)
 - [x] Player-sited factories, one queue each, lane-bound by where they stand
-- [x] Air factory + attack bombers
+- [x] Air factory + attack bombers + interceptors (air-to-air counter)
 - [ ] In-game test of ally-lane reinforcement and the air factory
 - [ ] Static economy: flat ACU income, kill bounties, lane capture points
 - [ ] Lanes 2 and 3 markers (ally reinforcement is untestable until lane 2 exists)
@@ -289,8 +289,15 @@ factories never build, so mass and energy alone gate army size.
 - **First-factory tempo.** Round 1 storage is 216 and the land factory is
   overridden to 100 mass, so the opening is factory → ~116 mass of units. Air is
   150, i.e. an opening air factory costs most of a round.
-- **Mobile AA** is 55 mass and only useful against a bomber opponent; if air
-  stays rare, AA is a dead purchase and wants either a price cut or a ground role.
+- **Interceptor energy.** Stock is 50 mass / **2250 energy**, the same energy
+  trap the bomber had. Overridden to 250 to hold the ~1:5 mass:energy ratio, so
+  an interceptor (50m/250e) sits just under a bomber (90m/450e) and stays a
+  reactive counter to an air push. Whether air as a whole is too cheap is the
+  same open question as the bomber.
+- **Mobile AA** is 55 mass and only useful against a bomber opponent; now that
+  the air factory also builds an interceptor, ground AA overlaps the air-to-air
+  role. If air stays rare, AA is a dead purchase and wants either a price cut or
+  a ground role.
 
 Also worth noting: starting mass (150) buys two Assault Bot Spawners and
 nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
@@ -349,16 +356,32 @@ changing anything structural.
 ## Development workflow
 
 The repo copy and the deployed copy are **separate directories**; FAF loads only
-the deployed one. `deployed-map` is a symlink to it, so syncing is a plain copy:
+the deployed one. `deployed-map` is a symlink to it. Do **not** blanket-copy
+`*.lua`: three files (`_save.lua`, `_scenario.lua`, `.scmap`) are authored in
+FAFMapEditor against the deployed copy and flow deployed→repo — the opposite
+direction — so a naive `cp` clobbers unsynced map work. Sync code with the guard
+below, which copies code only and, for each editor-authored file, **skips it and
+warns on stderr when the deployed copy differs** from the repo so you can decide
+(merge / copy back / clobber) before anything is overwritten:
 
 ```sh
-cp -r LineWars-2p.v0001/lib LineWars-2p.v0001/units LineWars-2p.v0001/*.lua deployed-map/
-diff -r LineWars-2p.v0001 deployed-map   # should print nothing
+src=LineWars-2p.v0001; dst=deployed-map
+
+# Code flows repo→deployed — copy unconditionally.
+cp -r "$src/lib" "$src/units" \
+      "$src/LineWars-2p_script.lua" "$src/LineWars-2p_options.lua" "$dst/"
+
+# Editor-authored files flow deployed→repo — never pushed. Warn on divergence.
+for f in LineWars-2p_save.lua LineWars-2p_scenario.lua LineWars-2p.scmap; do
+    cmp -s "$src/$f" "$dst/$f" || \
+        echo "WARN: $f differs deployed↔repo — NOT copied; reconcile first (merge / copy back / clobber)" >&2
+done
+
+diff -r "$src" "$dst"   # after a clean sync, only the guarded files above may remain
 ```
 
-Careful about direction: `.scmap` and `_save.lua` are edited in **FAFMapEditor
-against the deployed copy**, so those need copying *back* into the repo after
-map edits. Everything else flows repo → deployed.
+To go the other way after a map edit, copy the diverged editor-authored file(s)
+`deployed-map/ → repo` by hand once you've confirmed the change is wanted.
 
 Launch with `~/Games/faf-linux/run-offline`. Game logs land in
 `~/.faforever/logs/game_*.log` and are the only real debugging channel —
