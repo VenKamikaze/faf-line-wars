@@ -17,6 +17,7 @@ local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 local AirGate = import(DIR .. 'lib/AirGate.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
+local CapturePoints = import(DIR .. 'lib/CapturePoints.lua')
 
 function OnPopulate()
     ScenarioUtils.InitializeArmies()
@@ -94,6 +95,8 @@ function OnStart(self)
     FactoryQueue.Start()   -- starts the queue poll; players build their own factories
     AirGate.Start()        -- locks air until the chosen round; must follow the restriction loop
     Economy.Start()
+    CapturePoints.Start()  -- lane capture points: land units capture, income to the side
+
     RoundManager.Start()
     AcuRules.Start()
 end
