@@ -16,6 +16,7 @@ local AcuRules = import(DIR .. 'lib/AcuRules.lua')
 local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 local AirGate = import(DIR .. 'lib/AirGate.lua')
+local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
 
 function OnPopulate()
     ScenarioUtils.InitializeArmies()
@@ -48,6 +49,11 @@ function OnStart(self)
         end
     end
     Config.Log('active players: ' .. table.getn(LW.ActivePlayers))
+
+    -- Pre-placed lane towers live in each ARMY_WAVE_n's LANE_TOWERS group, which
+    -- the engine does NOT auto-spawn (only INITIAL groups are). Spawn them here,
+    -- only for players actually in the game, so an empty lane has no defences.
+    WaveSpawner.SpawnLaneTowers()
 
     -- Alliances are dictated by start position (lane pairing), overriding
     -- lobby team settings: same side = allies, opposite side = enemies.

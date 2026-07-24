@@ -16,6 +16,31 @@ function RollWaves(armyName)
     return FactoryQueue.WavesForArmy(armyName)
 end
 
+-- Pre-placed lane defences (the tower groups authored into each ARMY_WAVE_n in
+-- _save.lua) are held in a group named LANE_TOWERS rather than the reserved
+-- INITIAL group, so the engine does NOT auto-spawn them at map load (only INITIAL
+-- groups are created by InitializeArmies). Instead we spawn each lane's towers
+-- ourselves here, only for players actually in the game — so an empty lobby slot
+-- never sprouts unmanned defences. Called once at start. The towers keep the
+-- position/orientation authored in the editor (CreateArmyGroup reads them from
+-- the save tree) and belong to the builder's ARMY_WAVE_n, so they take that
+-- side's colour and are allied to the whole side.
+local TOWER_GROUP = 'LANE_TOWERS'
+
+function SpawnLaneTowers()
+    for i, armyName in ScenarioInfo.LW.ActivePlayers do
+        local waveArmy = Config.WaveArmyOf(armyName)
+        -- Guard: only spawn if this wave army actually has a tower group in the
+        -- save (FindUnitGroup returns nil otherwise; CreateArmyGroup tolerates a
+        -- missing INITIAL but errors on any other missing named group).
+        if ScenarioUtils.FindUnitGroup(TOWER_GROUP, Scenario.Armies[waveArmy].Units) then
+            local units = ScenarioUtils.CreateArmyGroup(waveArmy, TOWER_GROUP)
+            Config.Log('spawned ' .. table.getn(units or {}) .. ' lane tower(s) for ' ..
+                armyName .. ' (' .. waveArmy .. ')')
+        end
+    end
+end
+
 -- The ordered list of positions a wave marching down this lane from this side
 -- passes through: optional waypoints, then the enemy Core (or the enemy Core
 -- marker if the opposing slot is empty).
@@ -98,8 +123,10 @@ function StartIdleWatchdog()
                     local waveBrain = GetArmyBrain(Config.WaveArmyOf(armyName))
                     -- Group the idle units by the lane they are currently in, so
                     -- each gets the right march path.
+                    -- Exclude STRUCTURE so the pre-placed lane towers (which are
+                    -- always "idle") are never dragged into a march platoon.
                     local idleByLane = {}
-                    for j, u in waveBrain:GetListOfUnits(categories.ALLUNITS, false) do
+                    for j, u in waveBrain:GetListOfUnits(categories.ALLUNITS - categories.STRUCTURE, false) do
                         if not u.Dead and u:IsIdleState() then
                             local lane = FactoryQueue.LaneForPosition(armyName, u:GetPosition())
                             idleByLane[lane] = idleByLane[lane] or {}
