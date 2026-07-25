@@ -34,7 +34,19 @@ def strip_lua_comments(text):
 
 
 def parse_id_list(body):
-    return re.findall(r"'([^']+)'", body)
+    """Comma-separated blueprint ids, position-preserving.
+
+    A slot may be `false` — a faction with no unit for that role — and the list
+    index IS the faction, so those come back as None rather than being dropped.
+    """
+    out = []
+    for token in body.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        m = re.match(r"'([^']+)'$", token)
+        out.append(m.group(1) if m else None)
+    return out
 
 
 def parse_unit_types(path):
@@ -82,6 +94,30 @@ def parse_unit_types(path):
             "roles": roles,
         })
     return out
+
+
+def parse_acu_structures(path):
+    """-> [ {name, tier, units: [id]} ] from the AcuStructures table.
+
+    Same shape as a Factories role ({name, tier, byFaction}), but AcuStructures
+    is a standalone top-level table (structures the ACU builds directly, never
+    queued in a factory) — scanned from its own marker to EOF rather than via
+    parse_unit_types' per-factory header regex.
+    """
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    m = re.search(r"AcuStructures\s*=\s*\{", text)
+    if not m:
+        sys.exit("gen-units-md: no AcuStructures table found in %s" % path)
+    body = text[m.end():]
+    return [
+        {"name": rn, "tier": int(rt or 1), "units": parse_id_list(rb)}
+        for rn, rt, rb in re.findall(
+            r"name\s*=\s*'([^']+)'\s*,"
+            r"(?:\s*tier\s*=\s*(\d+)\s*,)?"
+            r"\s*byFaction\s*=\s*\{([^}]*)\}",
+            body,
+        )
+    ]
 
 
 def parse_overrides(path):
@@ -175,13 +211,15 @@ def main():
         ).group(1),
     )
     kinds = parse_unit_types(UNIT_TYPES)
+    structures = parse_acu_structures(UNIT_TYPES)
     overrides = parse_overrides(OVERRIDES_BP)
     stock = load_stock(os.path.expanduser(args.gamedata))
 
     for uid in [u for k in kinds for r in k["roles"] for u in r["units"]] + \
                [f for k in kinds for f in k["factories"]] + \
-               [f for k in kinds for ids in k["tiers"].values() for f in ids]:
-        if uid not in stock:
+               [f for k in kinds for ids in k["tiers"].values() for f in ids] + \
+               [u for s in structures for u in s["units"]]:
+        if uid is not None and uid not in stock:
             sys.exit("gen-units-md: %s is not a real blueprint id" % uid)
 
     L = []
@@ -214,12 +252,38 @@ def main():
         levels = [(1, k["factories"])] + sorted(k["tiers"].items())
         for tier, ids in levels:
             for i, uid in enumerate(ids):
+                if uid is None:
+                    continue
                 L.append("| %s | %s | %s | `%s` | %s | %s | %s |" % (
                     k["name"], tier, factions[i], uid,
                     cost(uid, "mass", "BuildCostMass", stock, overrides),
                     cost(uid, "energy", "BuildCostEnergy", stock, overrides),
                     num(stock[uid].get("health")),
                 ))
+    L.append("")
+
+    L.append("## ACU-built defense structures")
+    L.append("")
+    L.append("Built directly by the ACU on its own side of the lane midline — exempt from")
+    L.append("the no-build zone (that is the point: it's how you hold a forward choke), but")
+    L.append("never past the midline. T2 needs no upgrade: the stock ACU's BuildableCategory")
+    L.append("already carries BUILTBYTIER2COMMANDER from the start. These use the engine's")
+    L.append("own construction economy (cost drains gradually over BuildTime) rather than")
+    L.append("the factory-queue charge/refund path, so a value here exceeding a storage cap")
+    L.append("or the flat energy cap is a slow build, not a hard block.")
+    L.append("")
+    L.append("| Structure | Tier | Faction | Blueprint | Mass | Energy | Health |")
+    L.append("| --- | ---: | --- | --- | ---: | ---: | ---: |")
+    for s in sorted(structures, key=lambda r: r["tier"]):
+        for i, uid in enumerate(s["units"]):
+            if uid is None:
+                continue
+            L.append("| %s | %s | %s | `%s` | %s | %s | %s |" % (
+                s["name"], s["tier"], factions[i], uid,
+                cost(uid, "mass", "BuildCostMass", stock, overrides),
+                cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                num(stock[uid].get("health")),
+            ))
     L.append("")
 
     for k in kinds:
@@ -229,6 +293,8 @@ def main():
         L.append("| --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: |")
         for role in sorted(k["roles"], key=lambda r: r["tier"]):
             for i, uid in enumerate(role["units"]):
+                if uid is None:
+                    continue
                 L.append("| %s | %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
                     role["name"], role["tier"], factions[i], uid,
                     stock[uid].get("name") or "?",
@@ -250,6 +316,8 @@ def main():
     for k in kinds:
         for role in k["roles"]:
             for i, uid in enumerate(role["units"]):
+                if uid is None:
+                    continue
                 rows.append((sort_key(uid, stock, overrides), uid, factions[i],
                              role["name"], k["name"]))
     for _, uid, faction, role, kind_name in sorted(rows, key=lambda r: (r[0], r[1])):
@@ -262,10 +330,11 @@ def main():
     L.append("")
 
     open(args.output, "w", encoding="utf-8").write("\n".join(L))
-    print("wrote %s (%d units, %d factories)" % (
+    print("wrote %s (%d units, %d factories, %d ACU structures)" % (
         args.output,
-        sum(len(r["units"]) for k in kinds for r in k["roles"]),
+        sum(1 for k in kinds for r in k["roles"] for u in r["units"] if u),
         sum(len(k["factories"]) for k in kinds),
+        sum(1 for s in structures for u in s["units"] if u),
     ))
 
 

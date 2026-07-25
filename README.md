@@ -30,8 +30,10 @@ enable. Keeping it that way constrains some of the design; see
 - [ ] In-game test of ally-lane reinforcement and the air factory
 - [ ] Static economy remainder: flat ACU income, kill bounties
 - [ ] Lanes 2 and 3 markers (ally reinforcement is untestable until lane 2 exists)
+- [x] Tech 2: land and air factory upgrades, with a unit set behind each
 - [ ] Balance pass using [UNITS.md](UNITS.md)
-- [ ] More unit roles (shields, T2, experimental mass sink)
+- [x] Defense structures: T1/T2 Point Defense, T1/T2 AA, T2 Shield, built directly by the ACU on its own side of the lane
+- [ ] More unit roles (T3, experimental mass sink)
 
 ## Layout
 
@@ -46,7 +48,7 @@ LineWars-2p.v0001/            the map folder FAF loads
     LineWars_units.bp         storage + factory-cost blueprint merges
   lib/
     Config.lua                all tuning + army/lane/marker contract
-    UnitTypes.lua             factories and the units they build (the balance table)
+    UnitTypes.lua             factories/units + the ACU-built defense structures (the balance table)
     FactoryQueue.lua          per-factory queues: charge, refund, lane binding
     RoundManager.lua          round timer loop + announcements
     WaveSpawner.lua           wave spawning, platoon march orders, idle watchdog
@@ -54,7 +56,7 @@ LineWars-2p.v0001/            the map folder FAF loads
     CapturePoints.lua         LW_Cap zones: land units capture, side earns income
     CoreStorage.lua           per-round mass-storage growth on each Core
     WinCondition.lua          Cores, elimination, side victory
-    AcuRules.lua              ACU buffs, no-build zones, midline rule
+    AcuRules.lua              ACU buffs, no-build zones (with a defense-structure carve-out), midline rule
     SpawnerTypes.lua          dead: the abandoned spawner-structure design
 UNITS.md                      generated balance reference (every buildable unit)
 tools/gen-units-md.py         regenerates UNITS.md from UnitTypes.lua + gamedata
@@ -205,6 +207,32 @@ it. Which units each factory offers is `lib/UnitTypes.lua` — the ACU's build
 restriction is derived from it, so a land factory shows only land roles and an
 air factory only air ones. See [UNITS.md](UNITS.md) for the full list with costs.
 
+**Tech tiers** use the stock factory **upgrade button**, for the same reason the
+whole model uses stock units: the art already exists. Because a pinned factory
+never progresses an order, the upgrade sits in its queue and `FactoryQueue`
+intercepts it — validates it is the exact next tier for that building, charges
+the target building's cost, then swaps the building in place, carrying the lane
+binding and the paid wave across. It is instant, so there is no cancel window.
+Tier gating of the *units* is then free: a T1 building's `BuildableCategory` is
+`BUILTBYTIER1FACTORY`, which no T2 unit carries, so "upgrade before you can build
+this" is enforced by the engine, not by script. Tier 2 currently offers:
+
+| Factory | T2 upgrade | Unlocks |
+| --- | --- | --- |
+| Land | Land Factory HQ (250m/1200e) | Heavy Tank, Mobile Missile Launcher, Mobile Flak |
+| Air | Air Factory HQ (350m/1750e) | Gunship, Fighter/Bomber |
+
+The fighter/bombers are the expansion-pack airframes — `dea0202` Janus (UEF),
+`xaa0202` Swift Wind (Aeon), `dra0202` Corsair (Cybran), `xsa0202` Notha
+(Seraphim). Those prefixes are correct, not typos: only the Seraphim one follows
+the `uea`/`uaa`/`ura`/`xsa` pattern the rest of the roster uses. All four are live
+FAF units with real icons and meshes. Aeon's is the exception in role as well —
+Swift Wind is a pure air-to-air Combat Fighter and drops no bombs.
+
+Every tier building must be in `AllowedCategories` (it is — `AllFactoryIds`
+includes the tier ids) or the map's own `AddRestriction` destroys the upgraded
+building the instant it appears.
+
 **Factories are lane-bound.** When a factory finishes building it is bound to the
 friendly lane whose axis it stands closest to — the segment between that lane's
 two Core markers, so a factory pushed forward still reads as its own lane.
@@ -245,6 +273,22 @@ practical choice rather than a round-long trek. A 1s tick then enforces:
 - **Midline rule** — an ACU closer to the enemy Core marker than its own is
   `Warp()`ed back to `MidlineReturnOffset` (10) in front of its own Core, so you
   cannot rush the enemy with your commander.
+- **Defense-structure carve-out** — the ACU may also build five faction-matched
+  defense structures directly (T1/T2 Point Defense, T1/T2 AA, T2 Shield; see
+  [UNITS.md](UNITS.md)). Unlike everything else, these ARE allowed inside a
+  no-build zone — that's the point, it's how you hold a forward choke — but
+  never past the midline of the lane they're actually sited in. Checked on the
+  structure's own position (not the ACU's), using the same Core-distance test
+  as the midline rule above, generalized to whichever lane the position is
+  actually nearest (`FactoryQueue.LaneForPosition`, the same rule factories use
+  for lane binding — so one built in a teammate's reinforced lane is judged by
+  that lane's Cores). A structure that ends up past the midline is refunded
+  pro-rata and destroyed, exactly like any other no-build-zone violation. No
+  upgrade is needed for the T2 pair: the stock ACU's `BuildableCategory` already
+  carries `BUILTBYTIER2COMMANDER` from the start. These use the engine's own
+  construction economy (cost drains gradually over `BuildTime`, gated normally)
+  rather than `FactoryQueue`'s charge/refund machinery, since the ACU builds
+  them directly instead of queuing them.
 
 ### Win condition
 
@@ -305,8 +349,11 @@ relative pricing. It is generated — after changing which units exist
 python3 tools/gen-units-md.py
 ```
 
-The two levers are those files and nothing else. Build time is irrelevant:
-factories never build, so mass and energy alone gate army size.
+The two levers are those files and nothing else for the wave-unit economy:
+factories never build, so mass and energy alone gate army size. The five
+ACU-built defense structures (see "Defense-structure carve-out" above) are the
+one exception — they use real ACU construction, so `BuildTime` also matters
+there.
 
 ### Open balance questions
 
@@ -322,10 +369,40 @@ factories never build, so mass and energy alone gate army size.
   an interceptor (50m/250e) sits just under a bomber (90m/450e) and stays a
   reactive counter to an air push. Whether air as a whole is too cheap is the
   same open question as the bomber.
+- **T2 energy.** Stock T2 air is priced 1:20 mass:energy (a Vulthoo is
+  500m/**10000e**), which against the flat 3900 energy cap is not expensive but
+  unbuildable. Every T2 air unit and the T2 air factory are overridden to the
+  same ~1:5 ratio the rest of the map uses, mass left at stock so the factions
+  keep their relative pricing. The T2 land units needed almost none of this —
+  heavy tanks and flak are already 1:5 at stock; only the mobile missile
+  launcher (1:7.5) was pulled into line. Open question: whether 1:5 is right at
+  the top of the range, where a single Vulthoo at 2500e is two thirds of the
+  entire energy pool.
+- **The mass cap, not income, gates the top of T2.** Storage is 216 on round 1
+  and +100 a round, so a single unit costing more than the current cap simply
+  cannot be bought however long you save: a Corsair or Notha (420) is a round-4
+  purchase and a Vulthoo (500) round-5, well after the T2 upgrade itself is
+  affordable. Either the storage step needs to be larger, or the heavy end of T2
+  needs a mass override the way the factories got one.
+- **Energy storage never grows.** Mass storage climbs +100/round via
+  `CoreStorage`, but the 3900 energy cap is the ACU's alone and nothing adds to
+  it, so energy is a flat ceiling on any single purchase for the whole game. If
+  T3 units are added, either that ceiling has to rise or their energy has to keep
+  shrinking relative to mass.
 - **Mobile AA** is 55 mass and only useful against a bomber opponent; now that
   the air factory also builds an interceptor, ground AA overlaps the air-to-air
   role. If air stays rare, AA is a dead purchase and wants either a price cut or
   a ground role.
+- **Defense-structure cost, unverified in-game.** No `.bp` override is applied
+  (see UNITS.md's new "ACU-built defense structures" section) — stock costs are
+  assumed to already deliver a real economy/time decision: T1 Point Defense's
+  250 mass alone exceeds the round-1 storage cap of 216; T2 Shield's up to 700
+  mass takes several rounds of storage growth to afford; and real `BuildTime`
+  under gradual construction ties up the ACU the way queued units tie up mass.
+  This relies on gradual ACU-construction economy (drains over `BuildTime`,
+  stalls rather than blocks) behaving differently from `FactoryQueue`'s atomic
+  per-unit charge — unconfirmed whether it reads as "a real strategic
+  decision" in play, rather than unreachable-early or trivially cheap-late.
 
 Also worth noting: starting mass (150) buys two Assault Bot Spawners and
 nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
@@ -334,6 +411,11 @@ nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
 
 FAF-specific behaviour that cost real debugging time. Worth reading before
 changing anything structural.
+
+> The project-agnostic version of this — everything below plus the desync rule,
+> the Lua 5.0 dialect, map/mod anatomy and a symptom→cause table, written for
+> *any* FAF map or mod rather than for Line Wars — lives in
+> [`FAF-SCRIPTING-GUIDE.md`](FAF-SCRIPTING-GUIDE.md).
 
 - **Blueprint-id categories are lowercase.** `categories.ueb1101` exists;
   `categories.UEB1101` does not. `EntityCategory + nil` throws *"get as UserData

@@ -4,14 +4,21 @@
 --  * no-build zones: structures placed inside a zone are refunded and
 --    removed, so lanes cannot be walled off. Zones are axis-aligned
 --    rectangles between marker pairs LW_NoBuild<i>_A / LW_NoBuild<i>_B
---    (opposite corners, any number of zones, numbered from 1).
---  * midline rule: an ACU that crosses its lane's halfway line (closer to
---    the enemy Core marker than its own) is warped back in front of its
---    Core, so you cannot rush the enemy with your commander.
+--    (opposite corners, any number of zones, numbered from 1). EXCEPT the
+--    five ACU-built defense structures (UnitTypes.AcuStructures — T1/T2 Point
+--    Defense, T1/T2 AA, T2 Shield), which ARE allowed inside a zone: that's
+--    how you hold a forward choke. They are still bound by the midline rule
+--    below, checked on the structure's own position.
+--  * midline rule: an ACU (or, for the five exempt structures above, the
+--    structure itself) that crosses its lane's halfway line (closer to the
+--    enemy Core marker than its own) is warped back / refunded and destroyed,
+--    so you cannot rush the enemy with your commander or its defenses.
 local ScenarioUtils = import('/lua/sim/ScenarioUtilities.lua')
 local Buff = import('/lua/sim/Buff.lua')
 local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
+local UnitTypes = import(DIR .. 'lib/UnitTypes.lua')
+local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 
 BuffBlueprint {
     Name = 'LineWarsAcu',
@@ -55,30 +62,71 @@ local function InZone(z, pos)
     return pos[1] >= z.x0 and pos[1] <= z.x1 and pos[3] >= z.z0 and pos[3] <= z.z1
 end
 
+-- Core marker positions for `lane`, from armyName's own side: own-side Core
+-- first, enemy-side Core second. A lookup, not logic — shared by EnforceMidline
+-- (the ACU's own position) and the ACU-structure midline check in
+-- EnforceNoBuild (a structure's position, possibly in a different, reinforced
+-- lane — see FactoryQueue.LaneForPosition).
+local function LaneCorePositions(armyName, lane)
+    local info = Config.PlayerArmies[armyName]
+    local own = ScenarioUtils.MarkerToPosition(Config.CoreMarker(lane, info.side))
+    local enemy = ScenarioUtils.MarkerToPosition(Config.CoreMarker(lane, Config.OppositeSide[info.side]))
+    return own, enemy
+end
+
+-- True if `pos` is at least as close to `own` Core as to `enemy` Core — the
+-- "which side of the midline" test.
+local function OwnSideOfMidline(own, enemy, pos)
+    return VDist2(pos[1], pos[3], enemy[1], enemy[3]) >= VDist2(pos[1], pos[3], own[1], own[3])
+end
+
 -- Remove this army's structures inside no-build zones, refunding what was
 -- actually invested so a misclick isn't a death sentence. Factories are NOT
 -- exempt — players site their own now, and a factory is exactly the thing you'd
 -- wall a lane with. FactoryQueue refunds the dead factory's paid queue too.
+--
+-- The five ACU-built defense structures (UnitTypes.AcuStructures) ARE exempt
+-- from the no-build zone — that's the point, they're how you hold the choke —
+-- but never past the midline of the lane they're actually sited in, checked on
+-- the structure's OWN position (not the ACU's): the ACU's stock
+-- MaxBuildDistance (10, confirmed in UEL0001_unit.bp) is small next to the
+-- no-build corridor's width but not zero, so a structure can land past the
+-- midline even while EnforceMidline keeps the ACU itself on its own side. This
+-- runs a single pass over every STRUCTURE and covers both checks, because the
+-- midline rule must hold everywhere a structure can be sited, not only inside
+-- a zone (lanes without a NoBuild marker pair yet still need it enforced).
 local function EnforceNoBuild(armyName)
-    if table.getn(NoBuildZones()) == 0 then
-        return
-    end
     local LW = ScenarioInfo.LW
     local brain = GetArmyBrain(armyName)
+    local hasZones = table.getn(NoBuildZones()) > 0
     for i, s in brain:GetListOfUnits(categories.STRUCTURE, false) do
         if not s.Dead and s ~= LW.Cores[armyName] and not s.LineWarsStorage then
             local pos = s:GetPosition()
-            for j, z in NoBuildZones() do
-                if InZone(z, pos) then
-                    local eco = s:GetBlueprint().Economy
-                    local frac = s:GetFractionComplete()
-                    brain:GiveResource('Mass', (eco.BuildCostMass or 0) * frac)
-                    brain:GiveResource('Energy', (eco.BuildCostEnergy or 0) * frac)
-                    s:Destroy()
-                    Config.PrintTextFor(armyName, 'No building in the lane!',
-                        14, 'ffff2222', 4, 'center')
-                    break
+            local isAcuStructure = UnitTypes.IsAcuStructure(s:GetUnitId())
+            local reason
+
+            if isAcuStructure then
+                local lane = FactoryQueue.LaneForPosition(armyName, pos)
+                local own, enemy = LaneCorePositions(armyName, lane)
+                if not OwnSideOfMidline(own, enemy, pos) then
+                    reason = 'Cannot build past the midline!'
                 end
+            elseif hasZones then
+                for j, z in NoBuildZones() do
+                    if InZone(z, pos) then
+                        reason = 'No building in the lane!'
+                        break
+                    end
+                end
+            end
+
+            if reason then
+                local eco = s:GetBlueprint().Economy
+                local frac = s:GetFractionComplete()
+                brain:GiveResource('Mass', (eco.BuildCostMass or 0) * frac)
+                brain:GiveResource('Energy', (eco.BuildCostEnergy or 0) * frac)
+                s:Destroy()
+                Config.PrintTextFor(armyName, reason, 14, 'ffff2222', 4, 'center')
             end
         end
     end
@@ -86,10 +134,9 @@ end
 
 local function EnforceMidline(armyName, acu)
     local info = Config.PlayerArmies[armyName]
-    local own = ScenarioUtils.MarkerToPosition(Config.CoreMarker(info.lane, info.side))
-    local enemy = ScenarioUtils.MarkerToPosition(Config.CoreMarker(info.lane, Config.OppositeSide[info.side]))
+    local own, enemy = LaneCorePositions(armyName, info.lane)
     local p = acu:GetPosition()
-    if VDist2(p[1], p[3], enemy[1], enemy[3]) < VDist2(p[1], p[3], own[1], own[3]) then
+    if not OwnSideOfMidline(own, enemy, p) then
         -- land a little in front of the Core, not on top of it
         local dx, dz = enemy[1] - own[1], enemy[3] - own[3]
         local len = VDist2(0, 0, dx, dz)

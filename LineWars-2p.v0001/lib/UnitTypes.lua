@@ -3,12 +3,20 @@
 -- these lists to build the restriction set, to decide which factory produces
 -- which units, and to price the queue.
 --
+-- AcuStructures (below) is a deliberately SEPARATE table for structures the ACU
+-- builds directly (never queued in a factory) — see its own header comment for
+-- why it must never be folded into Factories/roles/AllUnitIds().
+--
 -- UNITS.md at the repo root is GENERATED from this file plus the stock
 -- blueprints and the cost overrides in units/LineWars_units.bp. After editing
 -- either, re-run tools/gen-units-md.py so the balance table stays honest.
 --
--- Every byFaction list holds exactly four ids, ordered to match
--- brain:GetFactionIndex(): 1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim.
+-- Every byFaction list holds exactly four entries, ordered to match
+-- brain:GetFactionIndex(): 1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim. Where a faction
+-- has no unit for a role at all, the slot holds `false` rather than being
+-- omitted — the position IS the faction, so a shorter list would silently
+-- re-label the rest. (No role needs that today; the convention is fixed here so
+-- that a future one can, and the derived lookups below already skip `false`.)
 
 FactionNames = { 'UEF', 'Aeon', 'Cybran', 'Seraphim' }
 
@@ -39,17 +47,51 @@ Factories = {
             { name = 'Mobile Artillery',  tier = 1, byFaction = { 'uel0103', 'ual0103', 'url0103', 'xsl0103' } },
             { name = 'Mobile AA',         tier = 1, byFaction = { 'uel0104', 'ual0104', 'url0104', 'xsl0104' } },
             { name = 'Heavy Tank',        tier = 2, byFaction = { 'uel0202', 'ual0202', 'url0202', 'xsl0202' } },
+            { name = 'Mobile Missile Launcher', tier = 2, byFaction = { 'uel0111', 'ual0111', 'url0111', 'xsl0111' } },
+            { name = 'Mobile Flak',       tier = 2, byFaction = { 'uel0205', 'ual0205', 'url0205', 'xsl0205' } },
         },
     },
     {
         kind = 'AIR',
         name = 'Air Factory',
         byFaction = { 'ueb0102', 'uab0102', 'urb0102', 'xsb0102' },
+        tiers = {
+            [2] = { 'ueb0202', 'uab0202', 'urb0202', 'xsb0202' },
+        },
         roles = {
             { name = 'Interceptor',   tier = 1, byFaction = { 'uea0102', 'uaa0102', 'ura0102', 'xsa0102' } },
             { name = 'Attack Bomber', tier = 1, byFaction = { 'uea0103', 'uaa0103', 'ura0103', 'xsa0103' } },
+            { name = 'Gunship',       tier = 2, byFaction = { 'uea0203', 'uaa0203', 'ura0203', 'xsa0203' } },
+            -- NOTE the odd blueprint prefixes: the UEF and Cybran fighter/bombers
+            -- are `dea`/`dra`, the Aeon one `xaa` — they are expansion-pack ids,
+            -- not the `uea`/`uaa`/`ura`/`xsa` pattern every other row here uses.
+            -- They are NOT typos and must not be "corrected". All four are live
+            -- FAF units (icons in textures.nx2, meshes in the retail archives, AI
+            -- platoon templates and build-mode hotkeys reference them, and FAF
+            -- still balance-patches the Swift Wind). Aeon's is the odd one out in
+            -- role too: Swift Wind is a pure air-to-air Combat Fighter with no
+            -- bombs, where the other three genuinely bomb ground as well.
+            { name = 'Fighter/Bomber', tier = 2, byFaction = { 'dea0202', 'xaa0202', 'dra0202', 'xsa0202' } },
         },
     },
+}
+
+-- Defense structures the ACU may build DIRECTLY on its own side of the lane
+-- (see AcuRules' no-build-zone carve-out and midline check) — normal ACU
+-- construction, not a FactoryQueue queue. Deliberately a separate table from
+-- Factories/roles: AllUnitIds() feeds FactoryQueue.WaveCategory(), which
+-- PurgeStrayUnits() uses to Destroy() any unit of that category found sitting
+-- in a player army every tick (it assumes that can only be escaped
+-- factory-queue production). These structures are SUPPOSED to sit in a player
+-- army, so their ids must never be reachable from AllUnitIds() — use
+-- AllStructureIds()/IsAcuStructure() instead, which are entirely separate
+-- derived lookups.
+AcuStructures = {
+    { name = 'T1 Point Defense', tier = 1, byFaction = { 'ueb2101', 'uab2101', 'urb2101', 'xsb2101' } },
+    { name = 'T1 AA Defense',    tier = 1, byFaction = { 'ueb2104', 'uab2104', 'urb2104', 'xsb2104' } },
+    { name = 'T2 Point Defense', tier = 2, byFaction = { 'ueb2301', 'uab2301', 'urb2301', 'xsb2301' } },
+    { name = 'T2 AA Defense',    tier = 2, byFaction = { 'ueb2204', 'uab2204', 'urb2204', 'xsb2204' } },
+    { name = 'T2 Shield',        tier = 2, byFaction = { 'ueb4202', 'uab4202', 'urb4202', 'xsb4202' } },
 }
 
 --------------------------------------------------------------------------
@@ -90,10 +132,14 @@ local function Build()
             end
         end
         for j, role in def.roles do
+            -- `false` marks a faction with no unit for this role (see the header
+            -- comment): skip it, don't key the lookups on a boolean.
             for k, id in role.byFaction do
-                unitKind[id] = def.kind
-                table.insert(unitsByKind[def.kind], id)
-                table.insert(allUnits, id)
+                if id then
+                    unitKind[id] = def.kind
+                    table.insert(unitsByKind[def.kind], id)
+                    table.insert(allUnits, id)
+                end
             end
         end
     end
@@ -129,4 +175,40 @@ end
 function UpgradeTargetFor(id)
     Build()
     return upgradeTarget[id]
+end
+
+--------------------------------------------------------------------------
+-- AcuStructures derived lookups. Kept entirely separate from Build() above —
+-- see the AcuStructures header comment for why these ids must never end up in
+-- AllUnitIds()/unitsByKind.
+--------------------------------------------------------------------------
+local structureIds   -- { every AcuStructures id }
+local structureSet   -- id -> true, for fast membership tests
+
+local function BuildStructures()
+    if structureIds then
+        return
+    end
+    structureIds, structureSet = {}, {}
+    for i, role in AcuStructures do
+        for j, id in role.byFaction do
+            if id then
+                table.insert(structureIds, id)
+                structureSet[id] = true
+            end
+        end
+    end
+end
+
+function AllStructureIds()
+    BuildStructures()
+    return structureIds
+end
+
+-- True if `id` is one of the ACU-buildable defense structures (T1/T2 Point
+-- Defense, T1/T2 AA, T2 Shield). Used by AcuRules to exempt them from the
+-- no-build-zone sweep (subject to the midline check).
+function IsAcuStructure(id)
+    BuildStructures()
+    return structureSet[id] == true
 end

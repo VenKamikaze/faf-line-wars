@@ -57,9 +57,10 @@ end
 -- per unit in ReconcileFactory.
 
 -- Category union players are allowed to build: ACU + the factories + the wave
--- units. Used by the script's AddRestriction so the ACU menu shows just the
--- factories and each factory menu shows just the units of its own kind (all
--- other units of that domain are restricted away).
+-- units + the ACU-built defense structures. Used by the script's AddRestriction
+-- so the ACU menu shows just the factories/structures and each factory menu
+-- shows just the units of its own kind (all other units of that domain are
+-- restricted away).
 function AllowedCategories()
     local allowed = categories.COMMAND
     local function add(list, what)
@@ -73,6 +74,7 @@ function AllowedCategories()
     end
     add(UnitTypes.AllFactoryIds(), 'factory')
     add(UnitTypes.AllUnitIds(), 'wave unit')
+    add(UnitTypes.AllStructureIds(), 'ACU structure')
     return allowed
 end
 
@@ -433,6 +435,31 @@ local function PurgeStrayUnits(brain)
     end
 end
 
+-- `records` is keyed by the factory unit itself, and iteration order over a
+-- table keyed by unit userdata follows the hash of the engine handle — which
+-- differs per client, so `for f in records` is NOT deterministic across
+-- machines. Any code that turns that order into sim state (the round's wave
+-- spawn list, or the order factories are charged in when the economy is tight)
+-- would therefore diverge between clients and desync. The entity id is a synced
+-- per-unit number (identical on every client — the engine round-trips it UI->sim
+-- through GetEntityById), so sorting on it gives every client the same factory
+-- order to iterate.
+--
+-- Read `.EntityId`, the field Unit:OnPreCreate caches (sim/Unit.lua:277), NOT
+-- f:GetEntityId(). `records` can hold a factory that has already been Destroy()d
+-- — AcuRules' no-build sweep destroys factories, and records is only pruned on
+-- the next QueueLoop tick — and a moho call on a released entity throws, which
+-- would abort the caller (dropping a whole round's waves from WavesForArmy). The
+-- cached field survives destruction, and costs no engine call per comparison.
+local function SortedFactories(records)
+    local flist = {}
+    for f, rec in records do
+        table.insert(flist, f)
+    end
+    table.sort(flist, function(a, b) return a.EntityId < b.EntityId end)
+    return flist
+end
+
 local function Reconcile(armyName)
     local LW = ScenarioInfo.LW
     local brain = GetArmyBrain(armyName)
@@ -447,6 +474,13 @@ local function Reconcile(armyName)
 
     -- Drop factories that died (enemy fire, or the no-build-zone sweep) and give
     -- back everything still paid for in them.
+    --
+    -- Deliberately NOT SortedFactories: this is the one raw traversal of `records`
+    -- that is safe, because nothing here depends on order. GiveResource is clamped
+    -- addition, which is order-invariant (min(cap, min(cap, s+a)+b) is min(cap,
+    -- s+a+b) either way), the costs are small integers that sum exactly in doubles,
+    -- and Config.Log touches no sim state. If you add anything order-sensitive
+    -- here, sort it — see SortedFactories for why.
     for f, rec in records do
         if f.Dead then
             Refund(brain, rec.committed, armyName .. ' lost a lane ' .. rec.lane .. ' factory')
@@ -458,11 +492,9 @@ local function Reconcile(armyName)
     -- `records` (retires the old building, adds the new tier), and adding keys to
     -- a table mid-traversal is unsafe. The new building isn't reconciled until
     -- next tick, which is fine — it's freshly pinned with its wave re-issued.
-    local flist = {}
-    for f, rec in records do
-        table.insert(flist, f)
-    end
-    for i, f in flist do
+    -- Sorted, not raw-iterated, so a tight-economy tick charges factories in the
+    -- same order on every client (see SortedFactories).
+    for i, f in SortedFactories(records) do
         local rec = records[f]
         if rec then
             ReconcileFactory(armyName, brain, records, rec)
@@ -489,22 +521,31 @@ end
 -- Persistent — not cleared here.
 function WavesForArmy(armyName)
     local records = ScenarioInfo.LW.Factories[armyName] or {}
+    -- Build each lane's unit list in a synced factory order. WaveSpawner spawns
+    -- these with a Random() position offset per unit, so a client-dependent order
+    -- would give the same wave different positions (and entity ids) on each
+    -- client — the desync. Sorting the factories by entity id fixes the order;
+    -- lanes and each factory's committed set (integer/string keys) already
+    -- iterate deterministically.
     local byLane = {}
-    for f, rec in records do
+    local laneOrder = {}
+    for i, f in SortedFactories(records) do
+        local rec = records[f]
         local units = byLane[rec.lane]
         if not units then
             units = {}
             byLane[rec.lane] = units
+            table.insert(laneOrder, rec.lane)
         end
         for bp, n in rec.committed do
-            for i = 1, n do
+            for k = 1, n do
                 table.insert(units, bp)
             end
         end
     end
     local waves = {}
-    for lane, units in byLane do
-        table.insert(waves, { lane = lane, units = units })
+    for i, lane in laneOrder do
+        table.insert(waves, { lane = lane, units = byLane[lane] })
     end
     return waves
 end
