@@ -412,6 +412,11 @@ nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
 FAF-specific behaviour that cost real debugging time. Worth reading before
 changing anything structural.
 
+> The project-agnostic version of this — everything below plus the desync rule,
+> the Lua 5.0 dialect, map/mod anatomy and a symptom→cause table, written for
+> *any* FAF map or mod rather than for Line Wars — lives in
+> [`FAF-SCRIPTING-GUIDE.md`](FAF-SCRIPTING-GUIDE.md).
+
 - **Blueprint-id categories are lowercase.** `categories.ueb1101` exists;
   `categories.UEB1101` does not. `EntityCategory + nil` throws *"get as UserData
   expected but got nil"*, which surfaces as the whole `OnStart` silently
