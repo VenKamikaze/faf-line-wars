@@ -438,15 +438,23 @@ end
 -- differs per client, so `for f in records` is NOT deterministic across
 -- machines. Any code that turns that order into sim state (the round's wave
 -- spawn list, or the order factories are charged in when the economy is tight)
--- would therefore diverge between clients and desync. GetEntityId() is a synced
--- per-unit id (identical on every client), so sorting on it gives every client
--- the same factory order to iterate.
+-- would therefore diverge between clients and desync. The entity id is a synced
+-- per-unit number (identical on every client — the engine round-trips it UI->sim
+-- through GetEntityById), so sorting on it gives every client the same factory
+-- order to iterate.
+--
+-- Read `.EntityId`, the field Unit:OnPreCreate caches (sim/Unit.lua:277), NOT
+-- f:GetEntityId(). `records` can hold a factory that has already been Destroy()d
+-- — AcuRules' no-build sweep destroys factories, and records is only pruned on
+-- the next QueueLoop tick — and a moho call on a released entity throws, which
+-- would abort the caller (dropping a whole round's waves from WavesForArmy). The
+-- cached field survives destruction, and costs no engine call per comparison.
 local function SortedFactories(records)
     local flist = {}
     for f, rec in records do
         table.insert(flist, f)
     end
-    table.sort(flist, function(a, b) return a:GetEntityId() < b:GetEntityId() end)
+    table.sort(flist, function(a, b) return a.EntityId < b.EntityId end)
     return flist
 end
 
@@ -464,6 +472,13 @@ local function Reconcile(armyName)
 
     -- Drop factories that died (enemy fire, or the no-build-zone sweep) and give
     -- back everything still paid for in them.
+    --
+    -- Deliberately NOT SortedFactories: this is the one raw traversal of `records`
+    -- that is safe, because nothing here depends on order. GiveResource is clamped
+    -- addition, which is order-invariant (min(cap, min(cap, s+a)+b) is min(cap,
+    -- s+a+b) either way), the costs are small integers that sum exactly in doubles,
+    -- and Config.Log touches no sim state. If you add anything order-sensitive
+    -- here, sort it — see SortedFactories for why.
     for f, rec in records do
         if f.Dead then
             Refund(brain, rec.committed, armyName .. ' lost a lane ' .. rec.lane .. ' factory')
