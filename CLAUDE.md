@@ -6,6 +6,7 @@ Read these rather than re-deriving; each is current and cited.
 
 - `README.md` — the whole design: game loop, layout, **map marker contract** (lane/Core/spawn/no-build marker names), economy, ACU rules, win condition, lobby options, engine findings, dev workflow. Start here.
 - `FACTORY-QUEUE-DESIGN.md` — why the factory-queue model exists, with `file:line` engine citations, plus the open questions (the static economy is the big one still open). Read before touching `lib/FactoryQueue.lua`.
+- `FAF-SCRIPTING-GUIDE.md` — **project-agnostic**. How to write Lua for FAF maps/mods generally: the Lua 5.0 dialect, map/mod file anatomy, the determinism (desync) rule, restrictions/spawning, blueprint limits, and a symptom→cause table. Claims are tagged [GAME]/[SRC]/[BP]/[ASSUMED]. If reading README.md, this can usually be ignored. If writing large features involving engine-facing code then it may be useful to review; it is where the "Engine gotchas" below are explained in full.
 - `UNITS.md` — **generated**. Every buildable factory and unit with the mass/energy actually charged, sorted by cost. The balance reference.
 - `lib/UnitTypes.lua` — the single balance table (which factories exist, which units each offers). `units/LineWars_units.bp` — what they cost, plus storage caps.
 - `lua-examples/{maps,mods}` — reference FAF maps/mods (Wave of Death, The Great Pass, KotH) for how others solve things.
@@ -16,7 +17,7 @@ Read these rather than re-deriving; each is current and cited.
 
 ## Verify & deploy
 
-- `luac5.1 -p <file>` — syntax-checks `.lua` and `.bp`; the only local verification that exists. Run before every sync.
+- `luac5.1 -p <file>` — syntax-checks `.lua` and `.bp`; the only local verification that exists. Run before every sync. **It is a 5.1 parser checking 5.0-dialect code**, so `#t`, `pairs`, `ipairs` and a bare `for i,v in t do` all pass it cleanly — the dialect rules below are not tool-enforced and must be checked by reading.
 - Nothing else is locally testable: behaviour must be confirmed by Mick in-game. Do not claim a change works.
 - `deployed-map` is a symlink to a SEPARATE copy. Code flows repo→deployed; `_save.lua`/`_scenario.lua`/`.scmap` flow deployed→repo (authored in FAFMapEditor). NEVER blanket-copy `*.lua` — it clobbers those three. Use the guarded sync in README "Development workflow" (copies code only; `cmp`-checks each editor-authored file and warns on stderr + skips when deployed differs). Mick keeps a pre-edit deployed snapshot in `/tmp/dpm/`. Pre-flight with `diff -rq LineWars-2p.v0001 deployed-map/`, and `git show HEAD:<path> | diff - deployed-map/<path>` to find which commit deployed is at, before overwriting anything.
 - `python3 tools/gen-units-md.py` — regenerates `UNITS.md` after editing `lib/UnitTypes.lua` or `units/LineWars_units.bp`.
