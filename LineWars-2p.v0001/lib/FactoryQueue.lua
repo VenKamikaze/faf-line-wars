@@ -57,9 +57,10 @@ end
 -- per unit in ReconcileFactory.
 
 -- Category union players are allowed to build: ACU + the factories + the wave
--- units. Used by the script's AddRestriction so the ACU menu shows just the
--- factories and each factory menu shows just the units of its own kind (all
--- other units of that domain are restricted away).
+-- units + the ACU-built defense structures. Used by the script's AddRestriction
+-- so the ACU menu shows just the factories/structures and each factory menu
+-- shows just the units of its own kind (all other units of that domain are
+-- restricted away).
 function AllowedCategories()
     local allowed = categories.COMMAND
     local function add(list, what)
@@ -73,6 +74,7 @@ function AllowedCategories()
     end
     add(UnitTypes.AllFactoryIds(), 'factory')
     add(UnitTypes.AllUnitIds(), 'wave unit')
+    add(UnitTypes.AllStructureIds(), 'ACU structure')
     return allowed
 end
 
