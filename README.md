@@ -54,6 +54,9 @@ LineWars-2p.v0001/            the map folder FAF loads
     WaveSpawner.lua           wave spawning, platoon march orders, idle watchdog
     Economy.lua               income models (spawner income / flat scaling)
     CapturePoints.lua         LW_Cap zones: land units capture, side earns income
+    ChatCommands.lua          reads chat sim-side and dispatches /commands
+    Sos.lua                   /sos: one lane-wipe per player per game
+    Hud.lua                   how-to-play card at start + the live scoreboard
     CoreStorage.lua           per-round mass-storage growth on each Core
     WinCondition.lua          Cores, elimination, side victory
     AcuRules.lua              ACU buffs, no-build zones (with a defense-structure carve-out), midline rule
@@ -163,9 +166,23 @@ player. Detection reuses King of the Hill's
 excluded too, so you can't hold a point by parking your commander). Control is
 **side-based** (A vs B), so a reinforcing ally's
 wave can capture too — but income is **lane-local**: only the controlling side's
-player *in that lane* earns `CapturePointMass` (2/s) and `CapturePointEnergy`
-(25/s), not distant teammates. A point held by a reinforcing ally when the lane's
-own player is dead pays nobody.
+player *in that lane* earns it, not distant teammates. A point held by a
+reinforcing ally when the lane's own player is dead pays nobody.
+
+The rate is the **Capture point income** lobby option, a multiplier
+(`Config.CaptureIncomeScales`) on `CapturePointMass` (2/s) and
+`CapturePointEnergy` (25/s). Each rung is half the one above, so every step is
+50% either way: `High` is the flat rate the map used before this was an option
+and `Average` — the default — is half of it, because a full-strength point pile
+scaled income up far too fast in play. To rebalance, edit that one table.
+
+| Setting | Multiplier | Mass/s | Energy/s |
+| --- | --- | --- | --- |
+| Very low | 0.125 | 0.25 | 3.1 |
+| Low | 0.25 | 0.5 | 6.3 |
+| **Average** (default) | 0.5 | 1 | 12.5 |
+| High | 1.0 | 2 | 25 |
+| Very high | 2.0 | 4 | 50 |
 
 Control is **sticky**: a land unit only has to *pass through* the circle to
 capture it — it need not stay — and the point remains that side's until it is
@@ -307,6 +324,71 @@ side B blue via `SetArmyColor`, applied to the `ARMY_WAVE_n` armies only. Player
 keep their lobby colours, so you can still tell teammates apart, while the
 zoomed-out tactical view shows the push and pull of every lane in two colours.
 
+### SOS (chat command)
+
+A player types **`/sos`** in chat to detonate the **mobile** units standing in
+the lane they started in. Structures (Cores, factories, lane towers, ACU-built
+defences) are always untouched, and no ACU dies unless
+`Config.SosKillsCommander` is set. The charge is spent even if the lane happens
+to be empty, and everyone sees a global announcement naming the caller and the
+lane (`L1 (middle)` / `L2 (top)` / `L3 (bottom)`).
+
+Two lobby options shape it. **SOS uses per player** (default 1; `None` disables
+the command, which then explains itself rather than silently doing nothing).
+**SOS destroys** picks between *enemy units only* — clears the push and leaves
+your own wave standing — and *every unit in the lane*, which kills your own wave
+and any ally reinforcing you as well, so pressing it costs you the units you
+already paid for.
+
+"In the lane" means nearest **lane axis** (`FactoryQueue.LaneForAnyPosition`),
+the same measure factories are bound by, so a teammate's reinforcing wave
+marching through the lane is caught too. Victims are sorted by `.EntityId`
+before being killed: death weapons damage neighbours, so kill order reaches sim
+state and must not depend on engine list order (the usual desync rule).
+
+The command reaches the sim without any UI code — see *Engine findings* below
+for how, and `lib/ChatCommands.lua` for the citations. Tunables:
+`Config.SosCommand`, `SosCharges`, `SosKillsCommander`.
+
+### Scoreboard and the how-to-play card
+
+`lib/Hud.lua` prints a plain-ASCII how-to-play card at map start
+(`Config.IntroDurationSeconds`, default 30s) and then repaints a scoreboard —
+one row per player: nickname, lane, capture points held in their own lane, SOS
+charges left — every `Config.ScoreboardPeriodSeconds`.
+
+A map cannot ship UI lua, and the objectives panel is campaign-only
+(`gamemain.lua:305` gates `objectives2.CreateUI` behind `campaignMode`), so
+`PrintText` is the entire toolbox. `textdisplay.PrintToScreen` pools text
+controls per screen location and reuses the first **inactive** one, appending a
+new control when they are all still live, so a repeating display must satisfy
+
+```
+ScoreboardPeriodSeconds > ScoreboardLineDuration + 1     -- +1s = the alpha fade
+```
+
+or it grows a fresh set of rows every cycle, forever. Obeying it costs one
+fade-out/fade-in per cycle; both values are Config tunables because the
+flicker-versus-freshness trade is a taste call. The board owns `'lefttop'` —
+keep it off `'center'`, which `RoundManager` and `CapturePoints` write to.
+
+**The period must be measured in real seconds, not with `WaitSeconds`.**
+`WaitSeconds` counts *game* time, which speeds up and slows down with the `+`/`-`
+sim-speed keys, while textdisplay's fade counts *real* time. Pacing the board with
+`WaitSeconds(12)` therefore broke its own rule the moment the sim was sped up — at
+10x the period is 1.2 real seconds against a 10-second fade, so every cycle
+appended a whole new set of rows. That was the "scoreboard printed multiple times
+when I speed up the sim" symptom. `Config.RealSeconds()`
+(`GetSystemTimeSecondsOnlyForProfileUse`) decides when a repaint is due;
+`ScoreboardPollSeconds` only sets how often the loop checks. The same applies to
+the HUD gate, which waits for a real-world event (the UI appearing). That clock
+differs per client, so like `GetFocusArmy()` it may drive UI output only.
+
+Both displays sit flush against a screen edge, because a `PrintText` location is a
+fixed anchor with no offset. `Config.HudLeftPad` (leading spaces) insets them and
+`Config.ScoreboardTopSpacerLines` (blank lines printed above the board, one per
+line of shift) pushes the board clear of the mass/energy bars.
+
 ### On-screen messages
 
 Sim code runs identically on every client, so a bare `PrintText` puts the message
@@ -321,13 +403,20 @@ lane losses and victory stay global.
 
 ### Lobby options
 
-| Option | Key | Values (default first) |
+The `default` field of an option is a **1-based index into its `values` list**,
+not a value key. Every option here lists its default first and uses
+`default = 1`; the one exception is *SOS destroys*, which uses `default = 2`.
+
+| Option | Key | Values (**default** in bold) |
 | --- | --- | --- |
-| Income model | `opt_lw_income_model` | Spawner income, Flat scaling |
-| Round length | `opt_lw_round_time` | 60s, 45s, 90s, 120s |
-| Core toughness | `opt_lw_core_health` | Normal, x2, x4 |
-| Allow air units from round | `opt_lw_air_from_round` | 3, Immediate, 1, 2, 4, 5, 10, Never |
-| Map start delay | `opt_lw_start_delay` | 10s, None, 5s, 15s, 30s, 60s, 120s |
+| Income model | `opt_lw_income_model` | **Spawner income**, Flat scaling |
+| Round length | `opt_lw_round_time` | **60s**, 45s, 90s, 120s |
+| Core toughness | `opt_lw_core_health` | **Normal**, x2, x4 |
+| Allow air units from round | `opt_lw_air_from_round` | **3**, Immediate, 2, 4, 5, 10, Never |
+| Map start delay | `opt_lw_start_delay` | **10s**, None, 5s, 15s, 30s, 60s, 120s |
+| Capture point income | `opt_lw_capture_income` | **Average**, Very low, Low, High, Very high |
+| SOS uses per player | `opt_lw_sos_charges` | **1**, None, 2, 3 |
+| SOS destroys | `opt_lw_sos_targets` | Enemy units only, **Every unit in the lane** |
 
 Air gating (`lib/AirGate.lua`) locks the air factory and air units behind an
 `AddRestriction`/`RemoveRestriction` on the build menu (the King of the Hill
@@ -336,7 +425,9 @@ tech-phase pattern), lifted when the round counter reaches the chosen round.
 old fixed `InitialGraceSeconds`.
 
 Read via accessors in `Config.lua` that supply defaults, because
-`ScenarioInfo.Options` may be missing keys on offline/sandbox starts.
+`ScenarioInfo.Options` may be missing keys on offline/sandbox starts. **Keep each
+accessor's fallback equal to the lobby default**, or a sandbox run behaves
+differently from a real game for no visible reason.
 
 ## Balance reference
 
@@ -452,6 +543,49 @@ changing anything structural.
   overlay — set to the icon of the unit *produced* rather than of the proxy
   structure, so the button reads at a glance. Full custom art would need a
   companion mod players must enable, which is explicitly not wanted.
+- **Chat is readable from the sim without any UI code.** For every chat message
+  it receives, the stock UI fires a SimCallback whose only job is to record the
+  message into the replay (`ui/game/chat.lua:810` →
+  `SimUtils.GiveResourcesToPlayer`, whose first act is `SendChatToReplay(data)`
+  before it returns early because `From == To`). `data.Sender` is the nickname
+  and `data.Msg.text` is what was typed. `SendChatToReplay` is called
+  *unqualified* from inside that function, so it resolves through SimUtils'
+  module environment at call time, and replacing
+  `import('/lua/simutils.lua').SendChatToReplay` intercepts every message —
+  which is how `/sos` works. A leading `/` survives into `msg.text`:
+  `chat.lua:719` strips it only when building `args` for `RunChatCommand`, and
+  the only registered client-side commands are the four notify toggles.
+  Handlers are dispatched with `ForkThread` so a throw cannot take replay chat
+  logging down with it. **The sim sees more than one copy of a single message**
+  (confirmed: one typed `/sos` logged two dispatches in a 4-player game), since
+  `ReceiveChat` runs on every client that received it and each issues its own
+  callback — hence the dedupe in `ChatCommands`. Hooking the callback table
+  itself is not possible:
+  `Callbacks` in `SimCallbacks.lua` is a file-local that captured its function
+  reference at load. **Unconfirmed:** `ReceiveChat` runs on every client that
+  received the message, so the sim may see one copy per receiving client;
+  `ChatCommands` dedupes on sender + text + game time and logs every
+  invocation so the first game log settles it.
+- **The first `PrintText` of the game can kill `PrintText` for the whole
+  session.** `textdisplay.lua:17` captures its parent as a module upvalue at
+  load time — `local worldView = borders.GetMapGroup()` — and `GetMapGroup()`
+  returns `false` until `gamemain.CreateUI` builds the border controls. The sim
+  starts before that, so a message sent from `OnStart` loads `textdisplay` with
+  a dead parent and every later `PrintText` throws *"maui/text.lua(19): Expected
+  a game object"*. Unrecoverable: the module is cached and sim code cannot reach
+  UI code to repair it. Observed in `game_27479823.log` — 138 errors, no
+  on-screen text at all for the whole match. **Every message in this map
+  therefore goes through `Config.Announce`**, which queues anything printed in
+  the first `Config.HudStartDelaySeconds` (8) and flushes it when the gate
+  opens; `Config.WaitForHud()` is for anything that repaints on a cycle, since a
+  queued batch flushing late would collide with the next cycle. If on-screen
+  text goes missing again and that error is in the log, raise
+  `HudStartDelaySeconds`.
+- **The objectives panel does not exist in skirmish.** `gamemain.lua:305` only
+  calls `objectives2.CreateUI` when `campaignMode` is set, so `SimObjectives` /
+  `Sync.ObjectivesTable` are a dead end for a skirmish map's HUD. `PrintText` is
+  the only display channel, and its control pool has the refresh rule described
+  under *Scoreboard* above.
 - **`BuffBlueprint` is a sim global usable from map code**, so ACU buffs need no
   mod either. `Buff.ApplyBuff(acu, 'LineWarsAcu')` is keyed by unit object in
   `AcuRules`, so a rebuilt ACU gets re-buffed.

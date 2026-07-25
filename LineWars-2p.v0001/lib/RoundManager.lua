@@ -5,12 +5,15 @@ local Config = import(DIR .. 'lib/Config.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
 local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 
+-- Config.Announce, not PrintText: nothing may reach the screen before the UI
+-- exists, or PrintText is dead for the rest of the session (see the gate in
+-- lib/Config.lua).
 local function Announce(text)
-    PrintText(text, 20, 'ffFFD700', 8, 'center')
+    Config.Announce(text, 20, 'ffFFD700', 8, 'center')
 end
 
 local function AnnounceMinor(text)
-    PrintText(text, 14, 'ffffffff', 5, 'center')
+    Config.Announce(text, 14, 'ffffffff', 5, 'center')
 end
 
 local function RoundLoop()
@@ -19,8 +22,18 @@ local function RoundLoop()
     -- period elapses so players can settle in / position the ACU first.
     local startDelay = Config.GetStartDelaySeconds()
     if startDelay > 0 then
-        AnnounceMinor('Game starts in ' .. startDelay .. ' seconds — position your ACU')
-        WaitSeconds(startDelay)
+        -- Hold the notice until the screen can actually show it, then quote the
+        -- time that is genuinely left — a queued "starts in 10 seconds" flushed
+        -- at the 10-second mark would be a lie.
+        local gate = Config.HudStartDelaySeconds
+        if startDelay > gate then
+            WaitSeconds(gate)
+            AnnounceMinor('Game starts in ' .. (startDelay - gate) ..
+                ' seconds - position your ACU')
+            WaitSeconds(startDelay - gate)
+        else
+            WaitSeconds(startDelay)
+        end
     end
     while not LW.GameOver do
         local t = Config.GetRoundSeconds()

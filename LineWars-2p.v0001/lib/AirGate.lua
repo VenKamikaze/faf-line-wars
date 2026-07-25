@@ -83,9 +83,10 @@ function Start()
         for i, armyName in LW.ActivePlayers do
             ScenarioFramework.RemoveRestriction(armyName, cat)
         end
-        -- Global event: the unlock is symmetric, so announce to everyone (same
-        -- bare-PrintText convention RoundManager uses for round announcements).
-        PrintText('Air units unlocked!', 20, 'ff66ccff', 6, 'center')
+        -- Global event: the unlock is symmetric, so announce to everyone (via
+        -- Config.Announce, which every on-screen message in this map goes
+        -- through — see the PrintText gate in lib/Config.lua).
+        Config.Announce('Air units unlocked!', 20, 'ff66ccff', 6, 'center')
         Config.Log('air unlocked at round ' .. LW.Round)
     end)
 end

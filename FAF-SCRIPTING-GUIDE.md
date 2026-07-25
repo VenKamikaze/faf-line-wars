@@ -823,6 +823,153 @@ fields are absent most ticks.
 - A mod that only draws things should set `ui_only = true` — it then cannot
   desync at all, and players can enable it unilaterally.
 
+### 9a. What a map has instead of a UI
+
+A **map** cannot ship UI lua — only mods mount at the VFS root — so the `Sync` +
+hooked `UserSync` pattern above is closed to it. Two consequences worth knowing
+before designing any map HUD:
+
+- **The objectives panel does not exist in a skirmish.** `gamemain.lua:305` only
+  calls `objectives2.CreateUI` when `campaignMode` is set [SRC], so
+  `SimObjectives` and `Sync.ObjectivesTable` are a dead end outside campaign —
+  the sim writes, and nothing is listening.
+- **The first `PrintText` of the game can kill `PrintText` for the whole
+  session.** `textdisplay.lua` captures its parent control *once*, as a module
+  upvalue at load time [SRC, `lua/ui/game/textdisplay.lua:17`]:
+
+  ```lua
+  local worldView = import("/lua/ui/game/borders.lua").GetMapGroup()
+  ```
+
+  and `GetMapGroup()` returns **`false`** until the UI has built its border
+  controls — `gamemain.CreateUI` → `borders.SetupBorderControl` →
+  `CreateControls`, which is driven by the engine's `CreateGameInterface`
+  [SRC, `borders.lua:17,50,92`; `gamemain.lua:260,536-542`]. The sim can start
+  before that. `Sync.PrintText` is drained by `UserSync.OnSync`, which is
+  already running, so a message sent from `OnStart` at tick 0 loads
+  `textdisplay` with a dead parent, and from then on **every** `PrintText`
+  throws
+
+  ```
+  maui/text.lua(19): Expected a game object. (Did you call with '.' instead of ':'?)
+  ```
+
+  and nothing is ever drawn again. It is unrecoverable — the module is cached
+  with its bad upvalue, `PrintToScreen` leaves no partial state to repair, and
+  sim code cannot reach a UI module to fix it. [GAME — observed in a 4-player
+  FAF game: 138 of these, first message at tick 0, no on-screen text for the
+  entire match.]
+
+  The only lever a map has is time. Route every message through one helper that
+  holds anything printed in the first several seconds of game time and flushes
+  it when the gate opens; sim time only advances once the session is genuinely
+  running, so a handful of seconds is a strong bound. Anything that *repaints on
+  a cycle* must wait for the gate rather than queue, or the flushed batch lands
+  on top of the next cycle and breaks the pooling rule below.
+- **`PrintText` is the whole toolbox**, and it has a pooling rule.
+  `textdisplay.PrintToScreen` keeps a list of text controls **per screen
+  location**, reuses the first one that has gone *inactive*, and appends a brand
+  new control below when they are all still live [SRC,
+  `lua/ui/game/textdisplay.lua`]. A control goes inactive `duration` seconds
+  after printing plus about one more second of alpha fade. So a display that
+  repaints itself must satisfy
+
+  ```
+  repaint period > duration + 1
+  ```
+
+  or it grows by a full set of lines every cycle, forever. The price of obeying
+  it is one fade-out/fade-in per cycle. Give any repeating display a location no
+  other code prints to, or interleaved prints scramble which line lands in which
+  control. Valid locations are the nine in `textdisplay.lua`: `lefttop`,
+  `leftcenter`, `leftbottom`, `centertop`, `center`, `centerbottom`, `righttop`,
+  `rightcenter`, `rightbottom`.
+- **That period must be real seconds, and `WaitSeconds` is not.** `WaitSeconds`
+  counts **game** time, which players speed up and slow down with the `+`/`-`
+  keys; the fade in `PrintToScreen`'s `OnFrame` accumulates **real** frame
+  deltas. So a display paced with `WaitSeconds` violates the rule above as soon
+  as the game is sped up — at 10x a 12-second period is 1.2 real seconds against
+  an unchanged 10-second fade, and every cycle appends a fresh set of controls.
+  [GAME — observed as a scoreboard that reprinted itself repeatedly, more copies
+  the faster the sim ran.] `GetSystemTimeSecondsOnlyForProfileUse()` **is
+  callable from the sim** [SRC — `SimCallbacks.lua:38`,
+  `sim/ScenarioUtilities.lua:44`]; use it to decide when a repaint is due and let
+  `WaitSeconds` set only how often you check. Its value differs per client, so
+  like `GetFocusArmy()` it may drive UI output and never sim state. The same
+  reasoning applies to any wait for a real-world event, such as the UI finishing
+  its build above.
+- **A location is a fixed anchor with no offset**, so text sits flush against the
+  screen edge and can collide with the stock UI (the resource bars occupy the top
+  left). The only levers are padding: leading spaces to inset horizontally, and
+  blank spacer lines printed first to push content down one line at a time —
+  which is what the `PrintText(" ", …)` "spacer" calls in published maps are for.
+  A blank line must be `" "`, not `""`: an empty text control has no height for
+  the next line to stack below.
+
+### 9b. Reading chat from the sim (chat commands, no mod)
+
+The stock UI forwards **every chat message into the sim** as a side effect of
+recording chat into replays. `ReceiveChat` fires
+[SRC, `lua/ui/game/chat.lua:810`]:
+
+```lua
+SimCallback({Func = "GiveResourcesToPlayer",
+             Args = {From = GetFocusArmy(), To = GetFocusArmy(), Mass = 0,
+                     Energy = 0, Sender = sender, Msg = msg}}, true)
+```
+
+Sim-side that reaches `SimUtils.GiveResourcesToPlayer`, which calls
+`SendChatToReplay(data)` and then returns immediately because `From == To`
+[SRC, `lua/SimUtils.lua:1463`]. So the transfer is always a no-op and the
+payload carries `data.Sender` (nickname) and `data.Msg.text` (what was typed).
+
+To intercept it, replace `SendChatToReplay` on the SimUtils module:
+
+```lua
+local SimUtils = import('/lua/simutils.lua')
+local original = SimUtils.SendChatToReplay
+SimUtils.SendChatToReplay = function(data)
+    original(data)
+    -- data.Sender, data.Msg.text
+end
+```
+
+This works because `SendChatToReplay` is called *unqualified* from inside
+`GiveResourcesToPlayer`, so it is resolved through SimUtils' module environment
+at call time, and `import()` returns exactly that environment table (§1, module
+scope). `import` lowercases the path before caching [SRC,
+`lua/system/import.lua:106`], so casing cannot fork a second instance.
+
+Hooking `SimCallbacks.Callbacks` instead does **not** work: that table is a
+file-local, and it captured `SimUtils.GiveResourcesToPlayer` by value at load
+time.
+
+A leading `/` **does** reach `msg.text` intact. `OnEnterPressed`
+[SRC, `chat.lua:719-732`] strips it only when building `args` for
+`RunChatCommand`, and just four commands are registered
+(`enablenotify`, `disablenotify`, `enablenotifyoverlay`,
+`disablenotifyoverlay` — `AddChatCommand` in `lua/ui/notify/`); anything else
+returns false and the message is sent verbatim. Re-check this if a future patch
+adds client-side slash commands, because a name collision swallows the trigger
+silently, with no error anywhere.
+
+Three cautions:
+
+- Dispatch handlers with `ForkThread`, not a direct call. A throw inside a
+  handler propagates into `SendChatToReplay` → `GiveResourcesToPlayer` →
+  `DoCallback` and can break replay chat logging for the rest of the game;
+  forks are also scheduled in the deterministic order the callbacks arrive, so
+  this costs nothing on the desync side.
+- Resolve the sender by matching `data.Sender` against `GetArmyBrain(name).Nickname`.
+  `GetCurrentCommandSourceArmy()` gives the client that *issued* that copy, which
+  is not the same thing.
+- `ReceiveChat` runs on every client that received the message, and each issues
+  its own SimCallback, so the sim sees **more than one copy of a single message**
+  [GAME — a 4-player game logged two dispatches for one typed command; whether
+  the count is exactly one per receiving client is still unmeasured]. Dedupe on sender + text +
+  `GetGameTimeSeconds()`, and make the visible effect fire only in the branch
+  that actually changed state, so a duplicate cannot announce twice.
+
 ---
 
 ## 10. Verification and debugging
@@ -911,6 +1058,10 @@ them off, or you are measuring their numbers, not yours.
 | Script's own `IssueBuildFactory` silently does nothing | `SetBlockCommandQueue(true)` is set — it blocks the script too. (§8) |
 | Charged for something unaffordable, got a partial take | `TakeResource` floors at 0; check affordability first. (§8) |
 | Errors on a marker that may or may not exist | `MarkerToPosition` throws on missing. Read the Markers table directly. (§6) |
+| No `PrintText` ever appears, and the log repeats *"maui/text.lua(19): Expected a game object"* | The map's first `PrintText` ran before the UI built its map group, so `textdisplay.lua` cached a dead parent. Permanent for the session — delay the first message. (§9a) |
+| A repeating `PrintText` display grows extra lines every cycle | Repaint period is not longer than `duration` + ~1s of fade, so `PrintToScreen` appends new controls instead of reusing them. (§9a) |
+| …and it gets worse the faster the sim speed | The period is paced with `WaitSeconds` (game time) while the fade is real time. Pace it against the wall clock. (§9a) |
+| A map's objectives never appear on screen | The objectives panel is only created in campaign mode. (§9a) |
 | Unexpected extra ACUs | An army's `INITIAL` group is nil/empty and `CreateInitialArmyGroup` spawned a commander. (§5) |
 
 ---

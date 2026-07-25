@@ -126,10 +126,16 @@ local function UpdatePoint(point, radius)
         point.contested = false   -- owner latched unchanged
     end
 
-    -- Announce a genuine change of controlling side, to that side only.
+    -- Announce a genuine change of controlling side, to that side only. Skipped
+    -- entirely while the PrintText gate is shut: the lane towers stand on the map
+    -- from tick 0, so with a dozen markers the opening seconds would otherwise
+    -- queue a pile of capture messages that all flush onto 'center' in one tick.
+    -- Control and income below are unaffected — only the message is dropped.
     if point.owner and point.owner ~= point.announced then
-        Config.PrintTextForSide(point.owner,
-            'Captured a lane ' .. point.lane .. ' point!', 14, 'ff44ff44', 4, 'center')
+        if Config.HudIsOpen() then
+            Config.PrintTextForSide(point.owner,
+                'Captured a lane ' .. point.lane .. ' point!', 14, 'ff44ff44', 4, 'center')
+        end
         point.announced = point.owner
     elseif not point.owner then
         point.announced = nil
@@ -139,15 +145,17 @@ end
 -- Pay a controlled point's income to the controlling side's player IN THIS LANE
 -- (lane-local), if that player is alive. A point held by a reinforcing ally when
 -- the lane's own player is dead pays nobody.
-local function GrantIncome(point, tick)
+-- `scale` is the "Capture point income" lobby option's multiplier, read once per
+-- loop rather than per point.
+local function GrantIncome(point, tick, scale)
     if not point.owner or point.contested then
         return
     end
     local armyName = Config.ArmyInLane(point.lane, point.owner)
     if armyName and not ScenarioInfo.LW.Dead[armyName] then
         local brain = GetArmyBrain(armyName)
-        brain:GiveResource('Mass', Config.CapturePointMass * tick)
-        brain:GiveResource('Energy', Config.CapturePointEnergy * tick)
+        brain:GiveResource('Mass', Config.CapturePointMass * scale * tick)
+        brain:GiveResource('Energy', Config.CapturePointEnergy * scale * tick)
     end
 end
 
@@ -156,10 +164,9 @@ end
 --------------------------------------------------------------------------
 -- Lanes are 1..3 (Config.PlayerArmies). A lane's capture markers are read only
 -- if that lane has a player, so unoccupied lanes contribute no active points.
-local LANE_COUNT = 3
 local function DiscoverPoints()
     local points = {}
-    for lane = 1, LANE_COUNT do
+    for lane = 1, Config.LaneCount do
         if Config.ArmyInLane(lane, 'A') or Config.ArmyInLane(lane, 'B') then
             local n = 1
             while true do
@@ -184,10 +191,11 @@ local function CaptureLoop()
     local LW = ScenarioInfo.LW
     local tick = Config.CapturePointTickSeconds
     local radius = Config.CapturePointRadius
+    local scale = Config.GetCaptureIncomeScale()
     while not LW.GameOver do
         for i, point in LW.CapturePoints do
             UpdatePoint(point, radius)
-            GrantIncome(point, tick)
+            GrantIncome(point, tick, scale)
             DrawRing(point.center, radius, ColorFor(point))
         end
         WaitSeconds(tick)
@@ -203,6 +211,7 @@ function Start()
         return
     end
     Config.Log('capture points: ' .. n .. ' (radius ' .. Config.CapturePointRadius ..
-        ', +' .. Config.CapturePointMass .. ' mass/s each)')
+        ', +' .. (Config.CapturePointMass * Config.GetCaptureIncomeScale()) ..
+        ' mass/s each, income scale ' .. Config.GetCaptureIncomeScale() .. ')')
     ForkThread(CaptureLoop)
 end

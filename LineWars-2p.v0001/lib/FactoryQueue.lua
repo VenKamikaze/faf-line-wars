@@ -138,6 +138,30 @@ function LaneForPosition(armyName, pos)
     return best
 end
 
+-- Which lane an arbitrary position sits in, judged across BOTH sides. Unlike
+-- LaneForPosition this is not scoped to one player's side or to living players:
+-- it answers "which lane is this unit standing in?" for any unit on the map, so
+-- an enemy wave counts as being in the lane it is marching down. Same nearest-
+-- AXIS measure. Lanes with no player at either end are skipped, and nil comes
+-- back if no lane has both Core markers placed. (Used by lib/Sos.lua.)
+function LaneForAnyPosition(pos)
+    local best, bestDist = nil, nil
+    for lane = 1, Config.LaneCount do
+        if Config.ArmyInLane(lane, 'A') or Config.ArmyInLane(lane, 'B') then
+            local a = Config.GetMarker(Config.CoreMarker(lane, 'A'))
+            local b = Config.GetMarker(Config.CoreMarker(lane, 'B'))
+            if a and b then
+                local d = DistToSegment(pos[1], pos[3],
+                    a.position[1], a.position[3], b.position[1], b.position[3])
+                if not bestDist or d < bestDist then
+                    best, bestDist = lane, d
+                end
+            end
+        end
+    end
+    return best
+end
+
 --------------------------------------------------------------------------
 -- Per-factory queue bookkeeping
 --------------------------------------------------------------------------

@@ -17,6 +17,16 @@ PlayerArmies = {
 
 OppositeSide = { A = 'B', B = 'A' }
 
+-- How many lanes the map has. Lanes are numbered from the middle outwards, which
+-- is how they read on screen and how they are announced to players.
+LaneCount = 3
+LaneNames = { 'middle', 'top', 'bottom' }
+
+-- 'L2 (top)' — how a lane is named in any player-facing message.
+function LaneLabel(lane)
+    return 'L' .. lane .. ' (' .. (LaneNames[lane] or 'unknown') .. ')'
+end
+
 -- The ARMY_WAVE_n armies that own the marching units are forced to one colour
 -- per side. Players keep their own lobby colours — only the waves are recoloured,
 -- so the zoomed-out tactical view shows the push and pull of every lane in two
@@ -115,8 +125,16 @@ EconomyTickSeconds = 1
 -- unit only has to pass through to capture, and the point stays yours until it
 -- is contested (both sides present) or the enemy takes it.
 CapturePointRadius = 7         -- world units; the circle every LW_Cap marker gets
-CapturePointMass = 2            -- mass/second granted per controlled point
-CapturePointEnergy = 25         -- energy/second granted per controlled point
+CapturePointMass = 2            -- mass/second per controlled point at 'High'
+CapturePointEnergy = 25         -- energy/second per controlled point at 'High'
+
+-- Multiplier on the two rates above, chosen by the "Capture point income" lobby
+-- option. Each rung is HALF the one above it, so every step is the "50% either
+-- way" Kamikaze asked for; 'High' is the flat rate the map used before this became
+-- an option, and 'Average' (the default) is half of it. To rebalance, edit this
+-- one table — the option's help text quotes the resulting mass/s.
+CaptureIncomeScales = { 0.125, 0.25, 0.5, 1.0, 2.0 }   -- Very low .. Very high
+CaptureIncomeDefault = 3                               -- Average
 CapturePointTickSeconds = 0.1   -- control/income poll AND ring redraw cadence
                                 -- (rings are one-frame draws, so keep this fast)
 
@@ -139,6 +157,48 @@ AirNeverRound = 9999
 -- a burst can over-commit by at most one tick's worth.
 --------------------------------------------------------------------------
 FactoryQueueTickSeconds = 0.1
+
+--------------------------------------------------------------------------
+-- Chat commands and the SOS panic button (lib/ChatCommands.lua, lib/Sos.lua)
+--------------------------------------------------------------------------
+SosCommand = '/sos'             -- typed in chat; matched exactly, lowercased
+SosKillsCommander = false       -- true also detonates the ACU (brutal: it takes
+                                -- a whole economy with it)
+-- Uses per player, and whose units die, are lobby options — see
+-- GetSosCharges() / GetSosTargets() below.
+SosTargetsEnemy = 1             -- opt_lw_sos_targets: enemy mobile units only
+SosTargetsAll = 2               -- opt_lw_sos_targets: every mobile unit in the
+                                -- lane, the caller's and their allies' included
+ChatCommandDedupeSeconds = 0.5  -- the same message may reach the sim once per
+                                -- receiving client; ignore repeats inside this
+                                -- window (see lib/ChatCommands.lua)
+
+--------------------------------------------------------------------------
+-- On-screen furniture (lib/Hud.lua). PrintText is the only display channel a
+-- map has, and its control pool imposes one hard rule:
+--     ScoreboardPeriodSeconds > ScoreboardLineDuration + 1
+-- Break it and the board appends a fresh set of rows every cycle forever. The
+-- gap it forces is why the board fades out and back once per cycle; raise both
+-- together for less flicker and staler numbers.
+--------------------------------------------------------------------------
+IntroDurationSeconds = 30       -- how long the how-to-play card stays up
+IntroLocation = 'leftcenter'
+IntroTextSize = 14
+
+ScoreboardLocation = 'lefttop'  -- must be a location nothing else prints to
+ScoreboardPeriodSeconds = 12
+ScoreboardLineDuration = 10
+ScoreboardTextSize = 12
+ScoreboardPollSeconds = 0.5     -- how often the loop checks whether a repaint is
+                                -- due; the due-check itself is in REAL seconds
+
+-- A PrintText location is a fixed screen anchor with no offset parameter, so the
+-- only way to move text away from an edge is to pad it. Leading spaces shift it
+-- right (about two letter widths at four spaces), and blank spacer lines printed
+-- above the board push it down — one spacer per line, since spacers use the same
+-- font size. Eight of them clear the resource bars that sit at the top left.
+HudLeftPad = '    '
+ScoreboardTopSpacerLines = 8
 
 --------------------------------------------------------------------------
 -- ACU rules (see lib/AcuRules.lua)
@@ -177,10 +237,127 @@ function GetStartDelaySeconds()
     return ScenarioInfo.Options.opt_lw_start_delay or 10
 end
 
+-- How many times each player may use /sos. 0 disables the command. (0 is truthy
+-- in Lua, so the `or` fallback cannot swallow the "None" setting.)
+function GetSosCharges()
+    return ScenarioInfo.Options.opt_lw_sos_charges or 1
+end
+
+-- Multiplier on CapturePointMass/CapturePointEnergy — see CaptureIncomeScales.
+function GetCaptureIncomeScale()
+    local key = ScenarioInfo.Options.opt_lw_capture_income or CaptureIncomeDefault
+    return CaptureIncomeScales[key] or CaptureIncomeScales[CaptureIncomeDefault]
+end
+
+-- SosTargetsEnemy = only the other side's mobile units die; SosTargetsAll =
+-- every mobile unit in the lane dies, the caller's own wave included. The
+-- fallback matches the lobby default so an offline/sandbox start behaves the
+-- same as a real game.
+function GetSosTargets()
+    return ScenarioInfo.Options.opt_lw_sos_targets or SosTargetsAll
+end
+
 function Log(msg)
     if DebugMode then
         LOG('LineWars: ' .. msg)
     end
+end
+
+--------------------------------------------------------------------------
+-- THE PRINTTEXT GATE — read this before adding any on-screen message.
+--
+-- `lua/ui/game/textdisplay.lua` captures its parent control ONCE, at module
+-- load time:
+--
+--     local worldView = import('/lua/ui/game/borders.lua').GetMapGroup()
+--
+-- and `GetMapGroup()` returns **false** until the UI has built its border
+-- controls (`gamemain.CreateUI` -> `borders.SetupBorderControl`). The sim can
+-- start before that happens, so the FIRST PrintText a map sends may load
+-- textdisplay with a dead parent — after which EVERY PrintText for the whole
+-- session throws
+--
+--     maui/text.lua(19): Expected a game object
+--
+-- and nothing is ever drawn again. It cannot be recovered: the module is cached
+-- with its bad upvalue, and a map cannot reach UI code to repair it.
+--
+-- Seen for real in game_27479823.log (2026-07-25): the intro card printed at
+-- tick 0, produced 138 of those errors, and no on-screen text appeared at any
+-- point in the game.
+--
+-- So every message this map sends goes through Announce() below, which holds
+-- anything printed in the first HudStartDelaySeconds and flushes it when the
+-- gate opens. **If on-screen text is missing and the log carries that error,
+-- this number is the dial to turn up.**
+--------------------------------------------------------------------------
+HudStartDelaySeconds = 8
+
+-- Wall-clock seconds. `WaitSeconds` counts GAME time, which runs faster or
+-- slower as players press +/- on the sim speed, while textdisplay's fade timer
+-- counts REAL time (its OnFrame accumulates frame deltas). So anything paced
+-- against that fade — or against the arrival of the UI, which is also a
+-- real-world event — must be timed with this and not with WaitSeconds.
+--
+-- This is a profiling clock and its value differs per client, so like
+-- GetFocusArmy() it may only ever drive UI output, never sim state.
+function RealSeconds()
+    if GetSystemTimeSecondsOnlyForProfileUse then
+        return GetSystemTimeSecondsOnlyForProfileUse()
+    end
+    return GetGameTimeSeconds()   -- headless/sandbox fallback
+end
+
+local hudOpen = false
+local pending = {}
+
+local function Emit(m)
+    PrintText(m.text, m.size, m.color, m.duration, m.location)
+end
+
+-- Every on-screen message in this map goes through here instead of calling
+-- PrintText directly.
+function Announce(text, size, color, duration, location)
+    local m = { text = text, size = size, color = color,
+                duration = duration, location = location }
+    if hudOpen then
+        Emit(m)
+    else
+        table.insert(pending, m)
+    end
+end
+
+function HudIsOpen()
+    return hudOpen
+end
+
+-- Blocks the calling thread until the gate opens. Used by anything that repaints
+-- on a cycle: a queued batch flushing late would land on top of the next batch
+-- and break the "period > duration + 1" pooling rule (see lib/Hud.lua).
+-- Bounded, so that a gate which somehow never opens degrades to a display that
+-- runs anyway rather than a thread that spins for the rest of the game.
+function WaitForHud()
+    local deadline = RealSeconds() + HudStartDelaySeconds * 3
+    while not hudOpen and RealSeconds() < deadline do
+        WaitSeconds(0.5)
+    end
+end
+
+-- Called once from OnStart, before anything prints. The delay is measured in real
+-- seconds: what we are waiting for is the UI to finish building, so a game
+-- started at high sim speed must not open the gate proportionally early.
+function StartHudGate()
+    ForkThread(function()
+        local openAt = RealSeconds() + HudStartDelaySeconds
+        while RealSeconds() < openAt do
+            WaitSeconds(0.5)
+        end
+        hudOpen = true
+        for i, m in pending do
+            Emit(m)
+        end
+        pending = {}
+    end)
 end
 
 --------------------------------------------------------------------------
@@ -202,7 +379,7 @@ end
 
 function PrintTextFor(armyName, text, size, color, duration, location)
     if IsFocus(armyName) then
-        PrintText(text, size, color, duration, location)
+        Announce(text, size, color, duration, location)
     end
 end
 
@@ -210,7 +387,7 @@ end
 function PrintTextForSide(side, text, size, color, duration, location)
     for i, name in ScenarioInfo.LW.ActivePlayers do
         if PlayerArmies[name].side == side and IsFocus(name) then
-            PrintText(text, size, color, duration, location)
+            Announce(text, size, color, duration, location)
             return
         end
     end

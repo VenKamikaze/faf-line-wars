@@ -45,7 +45,7 @@ local function CheckForVictory()
     if winners then
         LW.GameOver = true
         for i, armyName in winners do
-            PrintText(GetArmyBrain(armyName).Nickname .. ' is victorious!', 24, 'ff00ff00', 15, 'center')
+            Config.Announce(GetArmyBrain(armyName).Nickname .. ' is victorious!', 24, 'ff00ff00', 15, 'center')
             GetArmyBrain(armyName):OnVictory()
         end
         ForkThread(function()
@@ -63,7 +63,7 @@ local function OnCoreKilled(coreUnit)
     end
     LW.Dead[armyName] = true
     local info = Config.PlayerArmies[armyName]
-    PrintText(GetArmyBrain(armyName).Nickname .. ' has lost lane ' .. info.lane .. '!', 20, 'ffff2222', 10, 'center')
+    Config.Announce(GetArmyBrain(armyName).Nickname .. ' has lost lane ' .. info.lane .. '!', 20, 'ffff2222', 10, 'center')
     CoreStorage.CleanupFor(armyName)   -- remove the hidden storage units stacked on the dead Core
     KillArmyUnits(Config.WaveArmyOf(armyName))
     KillArmyUnits(armyName)

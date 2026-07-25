@@ -18,6 +18,9 @@ local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 local AirGate = import(DIR .. 'lib/AirGate.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
 local CapturePoints = import(DIR .. 'lib/CapturePoints.lua')
+local ChatCommands = import(DIR .. 'lib/ChatCommands.lua')
+local Sos = import(DIR .. 'lib/Sos.lua')
+local Hud = import(DIR .. 'lib/Hud.lua')
 
 function OnPopulate()
     ScenarioUtils.InitializeArmies()
@@ -43,6 +46,12 @@ function OnStart(self)
         Cores = {},          -- armyName -> Core unit
     }
     local LW = ScenarioInfo.LW
+
+    -- Opens the PrintText gate a few seconds in. Must come before anything that
+    -- prints: the very first PrintText a map sends loads the UI's textdisplay
+    -- module, and if it does that before the UI exists, on-screen text is dead
+    -- for the whole session. See lib/Config.lua.
+    Config.StartHudGate()
 
     for i, armyName in ListArmies() do
         if Config.PlayerArmies[armyName] then
@@ -96,6 +105,10 @@ function OnStart(self)
     AirGate.Start()        -- locks air until the chosen round; must follow the restriction loop
     Economy.Start()
     CapturePoints.Start()  -- lane capture points: land units capture, income to the side
+
+    ChatCommands.Start()   -- hooks chat into the sim; must precede any Register
+    Sos.Start()            -- registers /sos and hands out its one charge each
+    Hud.Start()            -- how-to-play card + the repeating scoreboard
 
     RoundManager.Start()
     AcuRules.Start()
