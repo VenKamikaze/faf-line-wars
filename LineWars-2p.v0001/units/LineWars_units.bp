@@ -1,6 +1,14 @@
--- Blueprint overrides for Line Wars: storage capacities and the build cost of
--- the two factories. Pure Economy MERGEs (a documented-safe target), applied by
--- the map's *.bp scan at LOAD time on both the sim and UI passes.
+-- Blueprint overrides for Line Wars: storage capacities, factory build and
+-- upgrade costs, and the energy price of any unit whose stock energy cost is out
+-- of reach here. Pure Economy MERGEs (a documented-safe target), applied by the
+-- map's *.bp scan at LOAD time on both the sim and UI passes.
+--
+-- The energy rule of thumb: army energy storage is a flat 3900 for the whole
+-- game (the ACU's, and nothing Line Wars spawns adds any) against 100 e/s of
+-- income, so stock air prices — 1:20 mass:energy — make a unit unqueueable
+-- rather than expensive. Everything here is normalised to the ~1:5 ratio the T1
+-- land units already have; mass is left at stock so the factions keep their
+-- relative pricing.
 --
 -- IMPORTANT (learned 2026-07-22): this MUST be done at load time via a .bp, NOT
 -- at runtime in the sim. Editing __blueprints from the script (OnPopulate etc.)
@@ -71,6 +79,58 @@ local OVERRIDES = {
         BuildCostMass = 250,
         BuildCostEnergy = 1200,
         StorageMass = 0,
+    },
+    {
+        -- T2 air factory = the tier-2 air upgrade cost, charged the same way as
+        -- the land one. Stock 920m/18000e is far out of reach. Priced above the
+        -- T2 land upgrade (250m/1200e) for the same reason the T1 air factory is
+        -- dearer than the T1 land one: it unlocks units that ignore the lane.
+        -- Storage zeroed (stock 160).
+        ids = { 'ueb0202', 'uab0202', 'urb0202', 'xsb0202' },
+        BuildCostMass = 350,
+        BuildCostEnergy = 1750,
+        StorageMass = 0,
+    },
+    {
+        -- T2 mobile missile launchers. Stock 180m/1350e is a 1:7.5 ratio; every
+        -- other ground unit here is 1:5, and energy is the scarcer resource (the
+        -- cap is a flat 3900 all game — nothing grants energy storage — against
+        -- 100 e/s). 900 puts it on the same curve as the T2 heavy tanks, which
+        -- are already 1:5 at stock and so need no override.
+        ids = { 'uel0111', 'ual0111', 'url0111', 'xsl0111' },
+        BuildCostEnergy = 900,
+    },
+    {
+        -- T2 gunships. Stock is 1:20 on energy (3840-10000e), which against a
+        -- 3900 cap makes the Seraphim one literally unqueueable and the rest a
+        -- one-per-round purchase — the same energy trap the T1 bomber had. All
+        -- four are brought to 1:5 on their own stock mass, so the factions keep
+        -- their stock relative pricing (Stinger is the cheap light one, Vulthoo
+        -- the 1800 HP heavy one) without energy being the real gate.
+        ids = { 'uea0203' },              -- Stinger, 192 mass
+        BuildCostEnergy = 960,
+    },
+    {
+        ids = { 'uaa0203', 'ura0203' },   -- Specter / Renegade, 270 mass
+        BuildCostEnergy = 1350,
+    },
+    {
+        ids = { 'xsa0203' },              -- Vulthoo, 500 mass
+        BuildCostEnergy = 2500,
+    },
+    {
+        -- T2 fighter/bombers, the expansion-pack airframes (see the note in
+        -- UnitTypes.lua about the dea/xaa/dra prefixes). Same 1:5 treatment.
+        ids = { 'dea0202' },              -- Janus, 360 mass (stock 12600e)
+        BuildCostEnergy = 1800,
+    },
+    {
+        ids = { 'xaa0202' },              -- Swift Wind, 235 mass (stock 6750e)
+        BuildCostEnergy = 1175,
+    },
+    {
+        ids = { 'dra0202', 'xsa0202' },   -- Corsair / Notha, 420 mass (stock 8400e)
+        BuildCostEnergy = 2100,
     },
     {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
