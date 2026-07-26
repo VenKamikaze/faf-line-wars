@@ -27,14 +27,14 @@ enable. Keeping it that way constrains some of the design; see
 - [x] Player-sited factories, one queue each, lane-bound by where they stand
 - [x] Air factory + attack bombers + interceptors (air-to-air counter)
 - [x] Lane capture points (`lib/CapturePoints.lua`) — land units capture, income to the side
-- [ ] In-game test of ally-lane reinforcement and the air factory
+- [x] In-game test of ally-lane reinforcement and the air factory
 - [ ] Static economy remainder: flat ACU income, kill bounties
-- [ ] Lanes 2 and 3 markers (ally reinforcement is untestable until lane 2 exists)
+- [x] Lanes 2 and 3 markers (ally reinforcement is untestable until lane 2 exists)
 - [x] Tech 2: land and air factory upgrades, with a unit set behind each
 - [ ] Balance pass using [UNITS.md](UNITS.md)
 - [x] Defense structures: T1/T2/T3 Point Defense, T1/T2/T3 AA, T2 Shield, built directly by the ACU on its own side of the lane
 - [x] Tech 3: land and air factory upgrades, symmetric roles + one signature unit per faction per domain
-- [ ] In-game test of tier 3 and of the differential upgrade-cost fix
+- [x] In-game test of tier 3 and of the differential upgrade-cost fix
 - [ ] More unit roles (experimental mass sink)
 
 ## Layout
