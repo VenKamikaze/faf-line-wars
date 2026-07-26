@@ -5,6 +5,13 @@
 -- (Config.CapturePointRadius). Markers are read only for lanes that have a
 -- player, so an empty lane's capture points never activate.
 --
+-- HIGH-VALUE POINTS: up to three '+' may be appended to a marker name to
+-- multiply its payout (both mass and energy) — LW_L1_Cap4 pays x1, LW_L1_Cap4+
+-- x2, LW_L1_Cap4++ x3, LW_L1_Cap4+++ x4. The suffix is part of the marker name,
+-- so each n is probed in all four forms (a renamed Cap4+ must not read as a gap
+-- at n = 4). A multiplied point draws its ring with that many concentric lines,
+-- so players can tell it apart at a glance.
+--
 -- INCOME IS LANE-LOCAL: while a side controls a lane's point, only that side's
 -- player IN THAT LANE earns the extra mass + energy (the 1v1 duellist), not
 -- distant teammates. Presence/control is still side-based, so a reinforcing
@@ -62,7 +69,9 @@ local function SideHex(side)
 end
 
 local RING_SEGMENTS = 48
-local function DrawRing(center, radius, color)
+local RING_LINE_SPACING = 0.4   -- world units between the lines of a bold ring
+
+local function DrawCircle(center, radius, color)
     local twoPi = 6.2831853
     local prev
     for k = 0, RING_SEGMENTS do
@@ -74,6 +83,14 @@ local function DrawRing(center, radius, color)
             DrawLine(prev, p, color)
         end
         prev = p
+    end
+end
+
+-- `lines` concentric circles drawn just inside `radius`, so a x2/x3/x4 point
+-- reads as a visibly bolder ring without changing the capture radius itself.
+local function DrawRing(center, radius, color, lines)
+    for k = 0, (lines or 1) - 1 do
+        DrawCircle(center, radius - k * RING_LINE_SPACING, color)
     end
 end
 
@@ -133,8 +150,12 @@ local function UpdatePoint(point, radius)
     -- Control and income below are unaffected — only the message is dropped.
     if point.owner and point.owner ~= point.announced then
         if Config.HudIsOpen() then
+            local worth = ''
+            if point.multiplier > 1 then
+                worth = ' (x' .. point.multiplier .. ' income)'
+            end
             Config.PrintTextForSide(point.owner,
-                'Captured a lane ' .. point.lane .. ' point!', 14, 'ff44ff44', 4, 'center')
+                'Captured a lane ' .. point.lane .. ' point!' .. worth, 14, 'ff44ff44', 4, 'center')
         end
         point.announced = point.owner
     elseif not point.owner then
@@ -154,8 +175,8 @@ local function GrantIncome(point, tick, scale)
     local armyName = Config.ArmyInLane(point.lane, point.owner)
     if armyName and not ScenarioInfo.LW.Dead[armyName] then
         local brain = GetArmyBrain(armyName)
-        brain:GiveResource('Mass', Config.CapturePointMass * scale * tick)
-        brain:GiveResource('Energy', Config.CapturePointEnergy * scale * tick)
+        brain:GiveResource('Mass', Config.CapturePointMass * point.multiplier * scale * tick)
+        brain:GiveResource('Energy', Config.CapturePointEnergy * point.multiplier * scale * tick)
     end
 end
 
@@ -170,13 +191,25 @@ local function DiscoverPoints()
         if Config.ArmyInLane(lane, 'A') or Config.ArmyInLane(lane, 'B') then
             local n = 1
             while true do
-                local marker = Config.GetMarker(Config.CaptureMarker(lane, n))
+                -- Each n exists in exactly one of its '+' forms; probe them all
+                -- so a high-value point isn't mistaken for the end of the lane's
+                -- run. First match wins (a duplicated n takes the plainest).
+                local marker, plus
+                for p = 0, Config.CapturePointMaxPlus do
+                    marker = Config.GetMarker(Config.CaptureMarker(lane, n, p))
+                    if marker then
+                        plus = p
+                        break
+                    end
+                end
                 if not marker then
                     break
                 end
                 table.insert(points, {
                     center = marker.position,
                     lane = lane,
+                    -- x1 plain, x2 for '+', x3 '++', x4 '+++'
+                    multiplier = plus + 1,
                     owner = nil,
                     contested = false,
                 })
@@ -196,7 +229,7 @@ local function CaptureLoop()
         for i, point in LW.CapturePoints do
             UpdatePoint(point, radius)
             GrantIncome(point, tick, scale)
-            DrawRing(point.center, radius, ColorFor(point))
+            DrawRing(point.center, radius, ColorFor(point), point.multiplier)
         end
         WaitSeconds(tick)
     end
@@ -212,6 +245,15 @@ function Start()
     end
     Config.Log('capture points: ' .. n .. ' (radius ' .. Config.CapturePointRadius ..
         ', +' .. (Config.CapturePointMass * Config.GetCaptureIncomeScale()) ..
-        ' mass/s each, income scale ' .. Config.GetCaptureIncomeScale() .. ')')
+        ' mass/s each at x1, income scale ' .. Config.GetCaptureIncomeScale() .. ')')
+    for i, point in LW.CapturePoints do
+        if point.multiplier > 1 then
+            Config.Log('  lane ' .. point.lane .. ' high-value point: x' .. point.multiplier ..
+                ' (+' .. (Config.CapturePointMass * point.multiplier *
+                Config.GetCaptureIncomeScale()) .. ' mass/s, +' ..
+                (Config.CapturePointEnergy * point.multiplier *
+                Config.GetCaptureIncomeScale()) .. ' energy/s)')
+        end
+    end
     ForkThread(CaptureLoop)
 end

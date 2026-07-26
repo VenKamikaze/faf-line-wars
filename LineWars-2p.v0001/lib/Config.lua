@@ -86,9 +86,15 @@ function NoBuildMarker(i, corner)           -- corners (A/B) of rectangular no-b
     return 'LW_NoBuild' .. i .. '_' .. corner
 end
 
-function CaptureMarker(lane, n)              -- centre of capture zone n in a lane (fixed radius)
-    return 'LW_L' .. lane .. '_Cap' .. n
+-- Centre of capture zone n in a lane (fixed radius). `plus` (0..3) is the count
+-- of trailing '+' the marker was named with: each one steps the point's mass
+-- AND energy payout up a multiple (LW_L1_Cap4 = x1, ...Cap4+ = x2, ...Cap4++ = x3,
+-- ...Cap4+++ = x4) and draws the ring one line thicker.
+function CaptureMarker(lane, n, plus)
+    return 'LW_L' .. lane .. '_Cap' .. n .. string.rep('+', plus or 0)
 end
+
+CapturePointMaxPlus = 3         -- most '+' suffixes honoured (x4 at the top)
 
 -- Safe lookup: returns the marker table or nil (MarkerToPosition errors on
 -- missing markers, which makes optional waypoints impossible to probe).

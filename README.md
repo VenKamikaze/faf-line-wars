@@ -91,10 +91,13 @@ crashing, except spawn/Core markers for an occupied slot.
 | `LW_L<lane>_Wp<n>_<side>` | optional path points, walked in order before the enemy Core | no |
 | `LW_NoBuild<i>_A` / `_B` | opposite corners of an axis-aligned no-build rectangle | no |
 | `LW_L<lane>_Cap<n>` | centre of a capture point (fixed radius `CapturePointRadius`) | no |
+| `LW_L<lane>_Cap<n>+` … `+++` | same, but a high-value point: each `+` steps the mass+energy payout up a multiple (`+` = x2, `++` = x3, `+++` = x4) | no |
 
 `<lane>` is 1..3, `<side>` is `A` or `B`. Waypoints and capture points are probed
 per lane from `n = 1` upward and stop at the first gap; no-build zones from
-`i = 1` likewise — so numbering must not skip. Capture markers are read only for
+`i = 1` likewise — so numbering must not skip. Each capture `n` is probed in all
+four `+` forms, so renaming `Cap4` to `Cap4++` does not read as a gap; give a
+point at most one name. Capture markers are read only for
 lanes that have a player, so an empty lane's points never activate.
 
 Armies in `_save.lua` must be `ARMY_1`..`ARMY_6` plus `ARMY_WAVE_1`..`ARMY_WAVE_6`,
@@ -192,6 +195,12 @@ scaled income up far too fast in play. To rebalance, edit that one table.
 | **Average** (default) | 0.5 | 1 | 12.5 |
 | High | 1.0 | 2 | 25 |
 | Very high | 2.0 | 4 | 50 |
+
+**High-value points.** Append up to three `+` to a marker name to multiply that
+point's mass *and* energy payout on top of the lobby scale: `LW_L1_Cap4+` pays
+x2, `Cap4++` x3, `Cap4+++` x4. Such a point draws its ring with that
+many concentric lines — a x3 point is visibly bolder than a plain one — so the
+prize is readable on the map without a legend.
 
 Control is **sticky**: a land unit only has to *pass through* the circle to
 capture it — it need not stay — and the point remains that side's until it is
