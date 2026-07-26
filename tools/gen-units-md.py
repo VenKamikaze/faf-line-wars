@@ -66,9 +66,16 @@ def parse_unit_types(path):
     if not matches:
         sys.exit("gen-units-md: no factory definitions found in %s" % path)
 
+    # The LAST factory's roles run to the end of the Factories table, not to end
+    # of file: AcuStructures follows it and its rows have the same
+    # `name = '...', tier = N, byFaction = {...}` shape, so an unbounded tail
+    # listed every ACU defense structure as an air-factory unit.
+    marker = re.search(r"^AcuStructures\s*=", text, re.M)
+    factories_end = marker.start() if marker else len(text)
+
     out = []
     for i, m in enumerate(matches):
-        tail_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        tail_end = matches[i + 1].start() if i + 1 < len(matches) else factories_end
         tail = text[m.end():tail_end]
         # Everything before `roles =` holds the upgrade tiers; split so a role's
         # own braces can't be mistaken for a `[n] = { ids }` tier entry.
@@ -169,6 +176,10 @@ def load_stock(gamedata):
                 "speed": field(raw, "MaxAirspeed") or field(raw, "MaxSpeed"),
                 "name": field(raw, "UnitName", r'"(?:<[^>]*>)?([^"]*)"'),
                 "desc": field(raw, "Description", r'"(?:<[^>]*>)?([^"]*)"'),
+                # Set on every stock factory above tier 1: the engine prices an
+                # upgrade into this building as its cost MINUS the cost of the
+                # building being upgraded (lua/game.lua:57).
+                "differential": "DifferentialUpgradeCostCalculation" in raw,
             }
     return stock
 
@@ -188,6 +199,33 @@ def cost(uid, key, bp_key, stock, overrides):
     if over is None:
         return num(entry.get(key))
     return "%s*" % num(over)
+
+
+def effective(uid, key, bp_key, stock, overrides):
+    """Effective cost as a number (override if there is one, else stock)."""
+    over = overrides.get(uid, {}).get(bp_key)
+    if over is not None:
+        return float(over)
+    return float(stock.get(uid, {}).get(key) or 0)
+
+
+def upgrade_cost(uid, prev_uid, stock, overrides):
+    """What a tier upgrade actually charges: (mass, energy).
+
+    Every stock factory above tier 1 sets Economy.DifferentialUpgradeCostCalculation,
+    so both the upgrade button's tooltip and FactoryQueue.UpgradeCost price it as
+    (this tier) minus (the tier below) -- see lua/game.lua:57. The blueprint's own
+    BuildCostMass/Energy is NOT what the player pays.
+    """
+    pairs = []
+    for key, bp_key in (("mass", "BuildCostMass"), ("energy", "BuildCostEnergy")):
+        here = effective(uid, key, bp_key, stock, overrides)
+        below = effective(prev_uid, key, bp_key, stock, overrides)
+        if stock.get(uid, {}).get("differential"):
+            pairs.append(max(here - below, 0))
+        else:
+            pairs.append(here)
+    return pairs
 
 
 def sort_key(uid, stock, overrides):
@@ -243,21 +281,34 @@ def main():
     L.append("")
     L.append("Built by the ACU (Tech 1). Each one is an independent queue bound to the")
     L.append("lane it stands in, so a factory sited in a teammate's lane reinforces it.")
-    L.append("Higher tiers are the native factory upgrade (its Mass/Energy is the upgrade")
-    L.append("cost Line Wars charges); upgrading unlocks that tier's units.")
+    L.append("Higher tiers are the native factory upgrade; upgrading unlocks that")
+    L.append("tier's units.")
     L.append("")
-    L.append("| Factory | Tier | Faction | Blueprint | Mass | Energy | Health |")
-    L.append("| --- | ---: | --- | --- | ---: | ---: | ---: |")
+    L.append("**Mass/Energy is the blueprint value; Pay is what the upgrade actually")
+    L.append("costs.** They differ above tier 1 because those buildings set")
+    L.append("`DifferentialUpgradeCostCalculation`, so the engine — and the upgrade")
+    L.append("button's own tooltip, and `FactoryQueue.UpgradeCost` — price the upgrade")
+    L.append("as this tier minus the tier below.")
+    L.append("")
+    L.append("| Factory | Tier | Faction | Blueprint | Mass | Energy | Pay (mass) | Pay (energy) | Health |")
+    L.append("| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |")
     for k in kinds:
         levels = [(1, k["factories"])] + sorted(k["tiers"].items())
-        for tier, ids in levels:
+        for n, (tier, ids) in enumerate(levels):
+            prev = levels[n - 1][1] if n else None
             for i, uid in enumerate(ids):
                 if uid is None:
                     continue
-                L.append("| %s | %s | %s | `%s` | %s | %s | %s |" % (
+                if prev is None:
+                    pay_m = pay_e = "—"
+                else:
+                    m, e = upgrade_cost(uid, prev[i], stock, overrides)
+                    pay_m, pay_e = num(m), num(e)
+                L.append("| %s | %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
                     k["name"], tier, factions[i], uid,
                     cost(uid, "mass", "BuildCostMass", stock, overrides),
                     cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                    pay_m, pay_e,
                     num(stock[uid].get("health")),
                 ))
     L.append("")
@@ -266,11 +317,17 @@ def main():
     L.append("")
     L.append("Built directly by the ACU on its own side of the lane midline — exempt from")
     L.append("the no-build zone (that is the point: it's how you hold a forward choke), but")
-    L.append("never past the midline. T2 needs no upgrade: the stock ACU's BuildableCategory")
-    L.append("already carries BUILTBYTIER2COMMANDER from the start. These use the engine's")
-    L.append("own construction economy (cost drains gradually over BuildTime) rather than")
-    L.append("the factory-queue charge/refund path, so a value here exceeding a storage cap")
-    L.append("or the flat energy cap is a slow build, not a hard block.")
+    L.append("never past the midline. No tier needs an ACU upgrade: the stock ACU's")
+    L.append("BuildableCategory already carries BUILTBYCOMMANDER, BUILTBYTIER2COMMANDER")
+    L.append("and BUILTBYTIER3COMMANDER from the start. These use the engine's own")
+    L.append("construction economy (cost drains gradually over BuildTime) rather than the")
+    L.append("factory-queue charge/refund path, so a value here exceeding a storage cap is")
+    L.append("a slow build, not a hard block.")
+    L.append("")
+    L.append("The T3 Point Defense is one building, the UEF Ravager, for every faction:")
+    L.append("stock FA has no other, so `units/LineWars_units.bp` appends the remaining")
+    L.append("three faction categories to it and every ACU can build it. It keeps its UEF")
+    L.append("model and name whoever builds it.")
     L.append("")
     L.append("| Structure | Tier | Faction | Blueprint | Mass | Energy | Health |")
     L.append("| --- | ---: | --- | --- | ---: | ---: | ---: |")

@@ -19,23 +19,35 @@
 local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 
--- Faction mass-storage building; index matches brain:GetFactionIndex()
--- (1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim). StorageMass is overridden in
--- units/LineWars_units.bp.
+-- Faction storage buildings; index matches brain:GetFactionIndex()
+-- (1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim). StorageMass/StorageEnergy are
+-- overridden in units/LineWars_units.bp.
+--
+-- Both caps grow, one building each per round. Energy was added 2026-07-26 for
+-- tier 3: the cap had been a flat 3900 (the ACU's) all game, and because
+-- FactoryQueue charges a queued unit's full energy price ATOMICALLY, nothing
+-- dearer than that could ever be queued however long you saved — which capped a
+-- unit at 780 mass on the map's 1:5 pricing and made T3 impossible. This is the
+-- "energy storage never growing caps any future T3" open question in README.
 local STORAGE_BY_FACTION = { 'ueb1106', 'uab1106', 'urb1106', 'xsb1106' }
+local ENERGY_BY_FACTION  = { 'ueb1105', 'uab1105', 'urb1105', 'xsb1105' }
 
 -- Category union of the storage buildings, for the script's allowed set so the
 -- restriction system doesn't destroy the ones we spawn (same reason the Core is
 -- exempted — see Unit.OnStopBeingBuilt / Game.IsRestricted).
 function AllowedCategories()
     local allowed = nil
-    for i, bp in STORAGE_BY_FACTION do
-        if categories[bp] then
-            allowed = allowed and (allowed + categories[bp]) or categories[bp]
-        else
-            WARN('LineWars: no category for storage building ' .. bp)
+    local function add(list)
+        for i, bp in list do
+            if categories[bp] then
+                allowed = allowed and (allowed + categories[bp]) or categories[bp]
+            else
+                WARN('LineWars: no category for storage building ' .. bp)
+            end
         end
     end
+    add(STORAGE_BY_FACTION)
+    add(ENERGY_BY_FACTION)
     return allowed
 end
 
@@ -49,8 +61,9 @@ local function Conceal(unit)
     unit.LineWarsStorage = true    -- flag so AcuRules' no-build sweep skips it
 end
 
--- Spawn one storage unit for this army, stacked on its Core, and track it.
-local function GrantOne(armyName)
+-- Spawn one storage unit of `byFaction` for this army, stacked on its Core, and
+-- track it.
+local function GrantOne(armyName, byFaction)
     local LW = ScenarioInfo.LW
     local core = LW.Cores[armyName]
     if not core or core.Dead then
@@ -58,10 +71,10 @@ local function GrantOne(armyName)
     end
     local pos = core:GetPosition()
     local brain = GetArmyBrain(armyName)
-    local bp = STORAGE_BY_FACTION[brain:GetFactionIndex()] or STORAGE_BY_FACTION[1]
+    local bp = byFaction[brain:GetFactionIndex()] or byFaction[1]
     local unit = CreateUnitHPR(bp, armyName, pos[1], pos[2], pos[3], 0, 0, 0)
     if not unit then
-        WARN('LineWars: failed to spawn storage unit for ' .. armyName)
+        WARN('LineWars: failed to spawn storage unit ' .. bp .. ' for ' .. armyName)
         return
     end
     Conceal(unit)
@@ -69,18 +82,26 @@ local function GrantOne(armyName)
     table.insert(LW.Storage[armyName], unit)
 end
 
--- Called at the start of every round's build phase: grant one storage unit
--- (worth the merged StorageMass) to each living player.
+-- The merged step size of a storage building, for the log line only.
+local function StepOf(byFaction, field)
+    local bp = __blueprints[byFaction[1]]
+    return bp and bp.Economy and bp.Economy[field] or '?'
+end
+
+-- Called at the start of every round's build phase: grant one mass-storage and
+-- one energy-storage unit (each worth its merged Storage* value) to every living
+-- player.
 function GrantForRound(round)
     local LW = ScenarioInfo.LW
     for i, armyName in LW.ActivePlayers do
         if not LW.Dead[armyName] then
-            GrantOne(armyName)
+            GrantOne(armyName, STORAGE_BY_FACTION)
+            GrantOne(armyName, ENERGY_BY_FACTION)
         end
     end
-    local step = __blueprints[STORAGE_BY_FACTION[1]]
-    step = step and step.Economy and step.Economy.StorageMass or '?'
-    Config.Log('granted +' .. tostring(step) .. ' storage/player for round ' .. round)
+    Config.Log('granted +' .. tostring(StepOf(STORAGE_BY_FACTION, 'StorageMass')) ..
+        ' mass / +' .. tostring(StepOf(ENERGY_BY_FACTION, 'StorageEnergy')) ..
+        ' energy storage per player for round ' .. round)
 end
 
 -- Destroy this army's storage units (called from WinCondition.OnCoreKilled).

@@ -69,26 +69,53 @@ local OVERRIDES = {
         BuildCostEnergy = 250,
     },
     {
-        -- T2 land factory = the tier-2 upgrade cost. FactoryQueue charges this
-        -- (read from the target building's blueprint) when a player buys the
-        -- upgrade, then swaps the building in place. Stock 1410m/11200e is
-        -- unreachable under the round cap, so it is cheapened to a meaningful but
-        -- affordable investment; storage zeroed (stock 160) so upgrading doesn't
-        -- quietly raise the cap. Tune here.
+        -- T2 land factory = the tier-2 upgrade cost. Stock 1410m/11200e is
+        -- unreachable under the round cap; storage zeroed (stock 160) so
+        -- upgrading doesn't quietly raise the cap.
+        --
+        -- !! READ THIS BEFORE TUNING ANY FACTORY ABOVE TIER 1 !!
+        -- These are NOT what the player pays. Every stock factory above tier 1
+        -- sets `Economy.DifferentialUpgradeCostCalculation = true`, so both the
+        -- upgrade button's tooltip and FactoryQueue.UpgradeCost price the upgrade
+        -- as (this tier) MINUS (the tier below). The numbers below are therefore
+        -- chosen so the DIFFERENCE is the intended price:
+        --   T1 land 100m/500e  -> T2 land 350m/1700e  => charged 250m/1200e
+        -- (Before 2026-07-26 the script charged the full value while the button
+        -- showed the difference — that is the "the upgrade cost more than the
+        -- blueprint says" bug. Keep the two in step when editing.)
         ids = { 'ueb0201', 'uab0201', 'urb0201', 'xsb0201' },
-        BuildCostMass = 250,
-        BuildCostEnergy = 1200,
+        BuildCostMass = 350,
+        BuildCostEnergy = 1700,
         StorageMass = 0,
     },
     {
-        -- T2 air factory = the tier-2 air upgrade cost, charged the same way as
-        -- the land one. Stock 920m/18000e is far out of reach. Priced above the
-        -- T2 land upgrade (250m/1200e) for the same reason the T1 air factory is
-        -- dearer than the T1 land one: it unlocks units that ignore the lane.
-        -- Storage zeroed (stock 160).
+        -- T2 air factory. Priced above the T2 land upgrade for the same reason
+        -- the T1 air factory is dearer than the T1 land one: it unlocks units
+        -- that ignore the lane. Storage zeroed (stock 160).
+        --   T1 air 150m/800e -> T2 air 500m/2550e => charged 350m/1750e
         ids = { 'ueb0202', 'uab0202', 'urb0202', 'xsb0202' },
-        BuildCostMass = 350,
-        BuildCostEnergy = 1750,
+        BuildCostMass = 500,
+        BuildCostEnergy = 2550,
+        StorageMass = 0,
+    },
+    {
+        -- T3 land factory. Same differential rule as above:
+        --   T2 land 350m/1700e -> T3 land 850m/4200e => charged 500m/2500e
+        -- Twice the T2 step, and the charge is atomic (FactoryQueue takes it in
+        -- one go), so 2500e must stay under the army energy cap of the round it
+        -- is meant to be bought in — see the energy-storage note below.
+        -- Storage zeroed (stock 320).
+        ids = { 'ueb0301', 'uab0301', 'urb0301', 'xsb0301' },
+        BuildCostMass = 850,
+        BuildCostEnergy = 4200,
+        StorageMass = 0,
+    },
+    {
+        -- T3 air factory.
+        --   T2 air 500m/2550e -> T3 air 1150m/5800e => charged 650m/3250e
+        ids = { 'ueb0302', 'uab0302', 'urb0302', 'xsb0302' },
+        BuildCostMass = 1150,
+        BuildCostEnergy = 5800,
         StorageMass = 0,
     },
     {
@@ -132,12 +159,101 @@ local OVERRIDES = {
         ids = { 'dra0202', 'xsa0202' },   -- Corsair / Notha, 420 mass (stock 8400e)
         BuildCostEnergy = 2100,
     },
+    --------------------------------------------------------------------
+    -- Tier 3 units. Same 1:5 mass:energy normalisation as tier 2, mass left at
+    -- stock. NOTE the mass cap, which is the real gate up here: it is 216 at
+    -- round 1 and grows +100/round, so a 480-mass Titan is unbuyable before
+    -- round 4, an 840-mass Othuum before round 7, and the 1280-1750 mass
+    -- "faction special"/"heavy air" picks before rounds 12-16. That is
+    -- deliberate (they are meant to be a late-game statement) but it IS the dial
+    -- to turn if T3 feels unreachable: either add BuildCostMass overrides here
+    -- or raise the per-round storage step at the bottom of this file.
+    --------------------------------------------------------------------
+    {
+        ids = { 'uel0303', 'url0303' },   -- Titan / Loyalist, 480 mass (stock 5250e)
+        BuildCostEnergy = 2400,
+    },
+    {
+        ids = { 'ual0303', 'xsl0303' },   -- Harbinger / Othuum, 840 mass (stock 9600e)
+        BuildCostEnergy = 4200,
+    },
+    {
+        -- T3 mobile heavy artillery, all four 800 mass at stock.
+        ids = { 'uel0304', 'ual0304', 'url0304', 'xsl0304' },
+        BuildCostEnergy = 4000,
+    },
+    {
+        -- T3 mobile AA (the expansion-pack `d*lk*` ids — see UnitTypes.lua).
+        ids = { 'delk002', 'dalk003', 'drlk001' },   -- 600 mass (stock 7500e)
+        BuildCostEnergy = 3000,
+    },
+    {
+        ids = { 'dslk004' },              -- Uyanah, 720 mass (stock 9600e)
+        BuildCostEnergy = 3600,
+    },
+    -- T3 mobile shields (uel0309/ual0309/url0309/xsl0309) are 312m/1560e at
+    -- stock, already exactly 1:5 — deliberately no override.
+    {
+        ids = { 'xel0305', 'xrl0305' },   -- Percival / The Brick, 1280 mass (stock 14000e)
+        BuildCostEnergy = 6400,
+    },
+    {
+        ids = { 'xal0305' },              -- Sprite Striker, 700 mass (stock 25000e)
+        BuildCostEnergy = 3500,
+    },
+    {
+        ids = { 'xsl0305' },              -- Usha-Ah, 780 mass (stock 27000e)
+        BuildCostEnergy = 3900,
+    },
+    {
+        -- T3 air-superiority fighters, 450 mass. Stock 51200e is 1:114 — by far
+        -- the worst energy trap in the game against a cap that starts at 3900.
+        ids = { 'uea0303', 'uaa0303', 'ura0303', 'xsa0303' },
+        BuildCostEnergy = 2250,
+    },
+    {
+        ids = { 'uea0305', 'xra0305' },   -- Broadsword / Wailer, 1500 mass (stock 65000e)
+        BuildCostEnergy = 7500,
+    },
+    {
+        ids = { 'xaa0305' },              -- Restorer, 1200 mass (stock 64000e)
+        BuildCostEnergy = 6000,
+    },
+    {
+        ids = { 'xsa0304' },              -- Sinntha, 1750 mass (stock 180000e)
+        BuildCostEnergy = 8750,
+    },
+    {
+        -- T3 Point Defense (the UEF Ravager, given to every faction — see the
+        -- Categories merge below and the AcuStructures comment in UnitTypes.lua).
+        -- Stock 2000m/17600e is 3.7x the T2 Point Defense; priced instead at
+        -- exactly 2x it (540m/3780e), which is the same step stock uses between
+        -- T2 and T3 AA. Built directly by the ACU, so unlike a queued unit this
+        -- drains gradually and is not bounded by the storage cap.
+        ids = { 'xeb2306' },
+        BuildCostMass = 1080,
+        BuildCostEnergy = 7560,
+    },
     {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
         -- (hidden, invulnerable) on each Core at the start of every round holds
         -- this much, so the cap grows by this per round. Stock 500.
         ids = { 'ueb1106', 'uab1106', 'urb1106', 'xsb1106' },
         StorageMass = 100,
+    },
+    {
+        -- Per-round ENERGY step, added 2026-07-26 alongside tier 3. Until now
+        -- the army energy cap was a flat 3900 (the ACU's) for the whole game,
+        -- which was already the stated blocker for T3 in README's open balance
+        -- questions: FactoryQueue charges a queued unit's full energy price
+        -- atomically, so nothing costing over 3900e could ever be queued however
+        -- long you saved, and at 1:5 that capped a unit at 780 mass. lib/
+        -- CoreStorage.lua now spawns one of these (hidden on the Core, exactly
+        -- like the mass one) each round too, so the energy cap is
+        -- 3900 + 500 x (round - 1): 5900 at round 5, 8400 at round 10, which is
+        -- what the tier-3 prices above are pitched against. Stock is 10000.
+        ids = { 'ueb1105', 'uab1105', 'urb1105', 'xsb1105' },
+        StorageEnergy = 500,
     },
 }
 
@@ -149,6 +265,7 @@ for i, group in OVERRIDES do
         if group.BuildCostMass ~= nil then economy.BuildCostMass = group.BuildCostMass end
         if group.BuildCostEnergy ~= nil then economy.BuildCostEnergy = group.BuildCostEnergy end
         if group.StorageMass ~= nil then economy.StorageMass = group.StorageMass end
+        if group.StorageEnergy ~= nil then economy.StorageEnergy = group.StorageEnergy end
         UnitBlueprint {
             Merge = true,
             BlueprintId = id,
@@ -156,3 +273,28 @@ for i, group in OVERRIDES do
         }
     end
 end
+
+--------------------------------------------------------------------------
+-- The one NON-Economy merge in this file: give every faction the UEF Ravager.
+--
+-- The stock game has exactly one T3 Point Defense, `xeb2306`, and an ACU's
+-- Economy.BuildableCategory is faction-scoped ("BUILTBYTIER3COMMANDER CYBRAN",
+-- UEL0001_unit.bp:227-231), so only a UEF ACU can reach it. Appending the other
+-- three faction categories makes every ACU's expression match. The Ravager keeps
+-- its UEF model, name and icon for everyone — cosmetic, and intended.
+--
+-- WHY THE EXPLICIT NUMERIC INDICES: BlueprintMerged (lua/system/Blueprints.lua:91)
+-- merges KEY BY KEY, so a plain `Categories = { 'AEON', ... }` would overwrite
+-- entries 1..3 of the stock 17-entry list — destroying "BUILTBYTIER3COMMANDER",
+-- "BUILTBYTIER3ENGINEER" and "CQUEMOV". Writing indices 18..20 appends with no
+-- gap. If a FAF patch ever changes the stock Categories list length this silently
+-- overwrites or leaves a hole: re-check the count in units.nx2 before trusting it.
+UnitBlueprint {
+    Merge = true,
+    BlueprintId = 'xeb2306',
+    Categories = {
+        [18] = 'AEON',
+        [19] = 'CYBRAN',
+        [20] = 'SERAPHIM',
+    },
+}

@@ -632,6 +632,25 @@ UnitBlueprint {
 stock blueprint. Merges can **add and change** fields but **cannot delete** them —
 the `nilValue` sentinel is not passed at that call site.
 
+**[SRC] Merging into a LIST overwrites by index — it does not append.**
+`BlueprintMerged` (`lua/system/Blueprints.lua:91`) recurses key by key, and an
+array is just a table keyed 1..n. So a merge of
+`Categories = { 'CYBRAN', 'SERAPHIM' }` replaces the stock entries **1 and 2**,
+which on a real unit means silently destroying two of its categories. To append,
+write explicit indices past the end of the stock list:
+
+```lua
+UnitBlueprint {
+    BlueprintId = 'xeb2306',
+    Merge = true,
+    Categories = { [18] = 'AEON', [19] = 'CYBRAN', [20] = 'SERAPHIM' },
+}
+```
+
+Count the stock entries first (extract `units.nx2` and read them), and re-check
+after a FAF patch: if the list ever gets longer or shorter, that merge starts
+overwriting entries or leaving a hole in the array.
+
 A `.bp` may call `UnitBlueprint{}` any number of times and may `doscript(path, env)`,
 so generate merges from a shared Lua data table rather than duplicating them. It
 runs inside the loader's `safecall`, so a failure degrades to stock values instead
@@ -784,7 +803,35 @@ factory directly" bypass is not reachable through the UI.
 
 **[BP]** Check `BuildableCategory` before assuming what can build what: the stock
 ACU's includes `BUILTBYCOMMANDER`/`BUILTBYTIER2COMMANDER`/`BUILTBYTIER3COMMANDER`
-with no enhancement prerequisite, so it natively builds T1 **and** T2 structures.
+with no enhancement prerequisite, so it natively builds T1, T2 **and** T3
+structures. **[BP]** Note it is also **faction-scoped** — the entries are
+`"BUILTBYTIER3COMMANDER UEF"`, an intersection — so a Cybran ACU cannot build a
+UEF-only structure. If you want one faction's building available to everyone, the
+merge to make is on the *building's* `Categories` (add the other faction names),
+not on each ACU.
+
+#### An upgrade's price is a differential, not the target's cost
+
+**[SRC]** Every stock factory above tier 1 sets
+`Economy.DifferentialUpgradeCostCalculation = true`, and
+`Game.GetConstructEconomyModel` (`lua/game.lua:57`) then computes
+
+```lua
+mass   = math.max(targetData.BuildCostMass   - upgradeBaseData.BuildCostMass,   0)
+energy = math.max(targetData.BuildCostEnergy - upgradeBaseData.BuildCostEnergy, 0)
+```
+
+where `upgradeBaseData` is the Economy of the building being upgraded. The UI
+tooltip goes through this (`unitviewDetail.lua:856` passes the builder's own
+Economy as the third argument), so **the number the player sees on the upgrade
+button is target-minus-source**.
+
+Any script that charges for an upgrade itself must apply the same subtraction, or
+the button will advertise one price and your script will demand another. The
+failure mode is silent and baffling: the player has more than the advertised cost,
+clicks, and nothing happens. It also means a `.bp` merge that "sets the upgrade
+cost" is really setting the top of a subtraction — write the tier costs so the
+*difference* between consecutive tiers is what you intend to charge.
 
 ---
 

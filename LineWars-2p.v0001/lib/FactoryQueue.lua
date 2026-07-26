@@ -48,6 +48,29 @@ local function UnitCost(bp)
     return eco.BuildCostMass or 0, eco.BuildCostEnergy or 0
 end
 
+-- Cost of upgrading `sourceBp` into `targetBp`, matching what the player is
+-- SHOWN on the native upgrade button.
+--
+-- Every stock factory above tier 1 sets `Economy.DifferentialUpgradeCostCalculation
+-- = true`, and the UI prices such an upgrade as target-minus-source
+-- (`Game.GetConstructEconomyModel`, lua/game.lua:57 — the tooltip goes through it
+-- at unitviewDetail.lua:856 with the builder's own Economy as the third
+-- argument). We were charging the FULL target cost instead, so the T2 air
+-- upgrade read 200 mass on the button (350 - 150) while silently demanding 350,
+-- and the click was rejected as unaffordable with no explanation. Charge the
+-- differential so the button tells the truth.
+local function UpgradeCost(sourceBp, targetBp)
+    local m, e = UnitCost(targetBp)
+    local target = __blueprints[targetBp]
+    local eco = target and target.Economy
+    if eco and eco.DifferentialUpgradeCostCalculation then
+        local sm, se = UnitCost(sourceBp)
+        m = math.max(m - sm, 0)
+        e = math.max(e - se, 0)
+    end
+    return m, e
+end
+
 -- NB: we deliberately do NOT use SetBlockCommandQueue as an "you're broke"
 -- early-out any more. It blocks our OWN IssueBuildFactory as well as the
 -- player's clicks, so the queue rebuild below silently vanished and the next
@@ -272,8 +295,8 @@ end
 
 -- A player clicked the native upgrade button on a factory. The order sits at the
 -- front of the pinned queue and never builds on its own, so we fulfil it: charge
--- the tier cost (read from the target building's blueprint, same UnitCost path as
--- everything else) and swap the building for its next tier IN PLACE, carrying the
+-- the tier cost (UpgradeCost — the DIFFERENTIAL the upgrade button displays, not
+-- the target's full price) and swap the building for its next tier IN PLACE, carrying the
 -- lane binding and the paid wave across. Instant — there is no cancel window, so
 -- no upgrade-specific refund path is needed.
 --
@@ -282,16 +305,17 @@ end
 -- not the live table.
 local function TryUpgrade(armyName, brain, records, rec, targetBp)
     local f = rec.factory
+    local sourceBp = f:GetUnitId()
 
     -- Only honour the exact next-tier upgrade for this building. Anything else
     -- (a stale or unexpected order) is dropped, leaving the paid unit queue as-is.
-    if targetBp ~= UnitTypes.UpgradeTargetFor(f:GetUnitId()) then
+    if targetBp ~= UnitTypes.UpgradeTargetFor(sourceBp) then
         RebuildQueue(f, rec.committed)
         rec.rebuildPending = true
         return
     end
 
-    local m, e = UnitCost(targetBp)
+    local m, e = UpgradeCost(sourceBp, targetBp)
     local shortOf
     if brain:GetEconomyStored('MASS') < m then
         shortOf = 'mass'

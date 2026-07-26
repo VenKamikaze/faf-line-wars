@@ -40,6 +40,7 @@ Factories = {
         -- destroys the upgraded building the moment it appears.
         tiers = {
             [2] = { 'ueb0201', 'uab0201', 'urb0201', 'xsb0201' },
+            [3] = { 'ueb0301', 'uab0301', 'urb0301', 'xsb0301' },
         },
         roles = {
             { name = 'Light Assault Bot', tier = 1, byFaction = { 'uel0106', 'ual0106', 'url0106', 'xsl0101' } },
@@ -49,6 +50,28 @@ Factories = {
             { name = 'Heavy Tank',        tier = 2, byFaction = { 'uel0202', 'ual0202', 'url0202', 'xsl0202' } },
             { name = 'Mobile Missile Launcher', tier = 2, byFaction = { 'uel0111', 'ual0111', 'url0111', 'xsl0111' } },
             { name = 'Mobile Flak',       tier = 2, byFaction = { 'uel0205', 'ual0205', 'url0205', 'xsl0205' } },
+            -- Tier 3. Siege Assault Bot is the workhorse (Titan/Harbinger/
+            -- Loyalist/Othuum); Heavy Artillery and T3 Mobile AA are the
+            -- symmetric support pair.
+            { name = 'Siege Assault Bot', tier = 3, byFaction = { 'uel0303', 'ual0303', 'url0303', 'xsl0303' } },
+            { name = 'Heavy Artillery',   tier = 3, byFaction = { 'uel0304', 'ual0304', 'url0304', 'xsl0304' } },
+            -- NOTE the `d*lk*` ids: the T3 mobile AA units are expansion-pack
+            -- blueprints, not the `*l0xxx` pattern, exactly like the T2
+            -- fighter/bombers below. They are live FAF units (build-mode hotkeys
+            -- at lua/ui/game/buildmodedata.lua:230,371,426, AI land platoon
+            -- templates, and FAF balance changelogs reference them). Do not
+            -- "correct" them.
+            { name = 'T3 Mobile AA',      tier = 3, byFaction = { 'delk002', 'dalk003', 'drlk001', 'dslk004' } },
+            -- Mobile Shield Generator: the one T3 unit that changes how a wave
+            -- behaves rather than just how hard it hits, and already ~1:5 at
+            -- stock so it needs no cost override.
+            { name = 'Mobile Shield',     tier = 3, byFaction = { 'uel0309', 'ual0309', 'url0309', 'xsl0309' } },
+            -- The faction-signature slot. Deliberately NOT symmetric: UEF and
+            -- Cybran get their heavy brawlers, Aeon and Seraphim their long-range
+            -- snipers. These are the dearest things in the game (see the mass-cap
+            -- note in units/LineWars_units.bp) and are meant to be a late-game
+            -- statement, not a staple.
+            { name = 'Faction Special',   tier = 3, byFaction = { 'xel0305', 'xal0305', 'xrl0305', 'xsl0305' } },
         },
     },
     {
@@ -57,6 +80,7 @@ Factories = {
         byFaction = { 'ueb0102', 'uab0102', 'urb0102', 'xsb0102' },
         tiers = {
             [2] = { 'ueb0202', 'uab0202', 'urb0202', 'xsb0202' },
+            [3] = { 'ueb0302', 'uab0302', 'urb0302', 'xsb0302' },
         },
         roles = {
             { name = 'Interceptor',   tier = 1, byFaction = { 'uea0102', 'uaa0102', 'ura0102', 'xsa0102' } },
@@ -72,6 +96,17 @@ Factories = {
             -- role too: Swift Wind is a pure air-to-air Combat Fighter with no
             -- bombs, where the other three genuinely bomb ground as well.
             { name = 'Fighter/Bomber', tier = 2, byFaction = { 'dea0202', 'xaa0202', 'dra0202', 'xsa0202' } },
+            -- Tier 3. The air-superiority fighter is symmetric across all four
+            -- (`*a0303`) and is the answer to a T3 air push.
+            { name = 'Air Superiority Fighter', tier = 3, byFaction = { 'uea0303', 'uaa0303', 'ura0303', 'xsa0303' } },
+            -- Faction-signature air, and the least symmetric row in this file:
+            -- UEF Broadsword and Cybran Wailer are the two stock T3 heavy
+            -- gunships; Aeon has no gunship so it gets the Restorer (its T3
+            -- air-superiority gunship, hits ground AND air); Seraphim has
+            -- neither, so it gets the Sinntha strategic bomber. If that reads
+            -- as too strong in play, drop the Seraphim slot to `false` (the
+            -- sparse-faction convention above) rather than reshuffling the row.
+            { name = 'Heavy Air',      tier = 3, byFaction = { 'uea0305', 'xaa0305', 'xra0305', 'xsa0304' } },
         },
     },
 }
@@ -92,6 +127,22 @@ AcuStructures = {
     { name = 'T2 Point Defense', tier = 2, byFaction = { 'ueb2301', 'uab2301', 'urb2301', 'xsb2301' } },
     { name = 'T2 AA Defense',    tier = 2, byFaction = { 'ueb2204', 'uab2204', 'urb2204', 'xsb2204' } },
     { name = 'T2 Shield',        tier = 2, byFaction = { 'ueb4202', 'uab4202', 'urb4202', 'xsb4202' } },
+    { name = 'T3 AA Defense',    tier = 3, byFaction = { 'ueb2304', 'uab2304', 'urb2304', 'xsb2304' } },
+    -- T3 Point Defense is the odd one out: the stock game has EXACTLY ONE, the
+    -- UEF Ravager, so all four factions are given the same building. That takes
+    -- a blueprint merge, because an ACU's BuildableCategory is faction-scoped
+    -- ("BUILTBYTIER3COMMANDER CYBRAN", UEL0001_unit.bp:227-231) and the Ravager
+    -- only carries UEF — units/LineWars_units.bp appends AEON/CYBRAN/SERAPHIM to
+    -- its Categories so every ACU's expression matches it. It keeps its UEF
+    -- model and name for everyone; that is cosmetic and intended.
+    --
+    -- If a unit-overhaul mod (BlackOps et al.) that ships real per-faction T3 PD
+    -- is loaded, this row is NOT replaced by it — their ids aren't listed here so
+    -- the map's restriction set hides them, and the Ravager stays. Playing
+    -- without those mods is the project's standing recommendation anyway (a map
+    -- .bp loses to mods, so none of the costs in units/LineWars_units.bp hold
+    -- with them on).
+    { name = 'T3 Point Defense', tier = 3, byFaction = { 'xeb2306', 'xeb2306', 'xeb2306', 'xeb2306' } },
 }
 
 --------------------------------------------------------------------------
@@ -192,7 +243,10 @@ local function BuildStructures()
     structureIds, structureSet = {}, {}
     for i, role in AcuStructures do
         for j, id in role.byFaction do
-            if id then
+            -- Deduped, unlike Build() above: the T3 Point Defense row lists the
+            -- same Ravager id for all four factions, and a repeated id would be
+            -- added to the allowed-category union four times over.
+            if id and not structureSet[id] then
                 table.insert(structureIds, id)
                 structureSet[id] = true
             end
