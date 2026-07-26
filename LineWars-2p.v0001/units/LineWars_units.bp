@@ -191,8 +191,10 @@ local OVERRIDES = {
         ids = { 'dslk004' },              -- Uyanah, 720 mass (stock 9600e)
         BuildCostEnergy = 3600,
     },
-    -- T3 mobile shields (uel0309/ual0309/url0309/xsl0309) are 312m/1560e at
-    -- stock, already exactly 1:5 — deliberately no override.
+    -- No T3 mobile shield entry: there is no such row in the roster any more.
+    -- `*l0309` — which used to be listed as one — are the T3 ENGINEERS, and being
+    -- MOBILE CONSTRUCTION they showed up in the land AND air T3 build menus. See
+    -- the note in lib/UnitTypes.lua before adding anything back here.
     {
         ids = { 'xel0305', 'xrl0305' },   -- Percival / The Brick, 1280 mass (stock 14000e)
         BuildCostEnergy = 6400,

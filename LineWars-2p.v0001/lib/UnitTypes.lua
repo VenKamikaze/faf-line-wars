@@ -62,10 +62,16 @@ Factories = {
             -- templates, and FAF balance changelogs reference them). Do not
             -- "correct" them.
             { name = 'T3 Mobile AA',      tier = 3, byFaction = { 'delk002', 'dalk003', 'drlk001', 'dslk004' } },
-            -- Mobile Shield Generator: the one T3 unit that changes how a wave
-            -- behaves rather than just how hard it hits, and already ~1:5 at
-            -- stock so it needs no cost override.
-            { name = 'Mobile Shield',     tier = 3, byFaction = { 'uel0309', 'ual0309', 'url0309', 'xsl0309' } },
+            -- NO T3 MOBILE SHIELD ROW, and do not add one back with `*l0309`:
+            -- those ids are the T3 ENGINEERS (Iyathuum et al.), not shields. They
+            -- were listed here as 'Mobile Shield' until 2026-07-26, and because an
+            -- engineer is MOBILE CONSTRUCTION — which BOTH the T3 land and T3 air
+            -- factory's BuildableCategory matches (UEB0301_unit.bp:99,
+            -- UEB0302_unit.bp:98) — a T3 engineer appeared in both build menus.
+            -- There is no symmetric replacement: stock FA ships mobile shields only
+            -- at T2 for UEF/Aeon (uel0307/ual0307), T3 for Seraphim (xsl0307), and
+            -- none at all for Cybran. Any future row here has to accept that
+            -- asymmetry, like the Faction Special below does.
             -- The faction-signature slot. Deliberately NOT symmetric: UEF and
             -- Cybran get their heavy brawlers, Aeon and Seraphim their long-range
             -- snipers. These are the dearest things in the game (see the mass-cap

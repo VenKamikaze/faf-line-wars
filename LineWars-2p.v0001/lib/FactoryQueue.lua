@@ -206,11 +206,28 @@ end
 -- Two independent locks, because the queue must never actually produce anything:
 -- build rate 0, and paused. Belt and braces is warranted — a player can hit the
 -- unpause button, and build rate alone was not visibly holding under a fast
--- spam-click. Re-applied every tick rather than once at adoption, so neither can
--- be undone for longer than one tick.
+-- spam-click. Checked every tick rather than once at adoption, so neither can be
+-- undone for longer than one tick.
+--
+-- CHECKED, not re-applied blindly. A redundant SetPaused/SetBuildRate is still a
+-- unit-state change, and a unit-state change on a SELECTED unit makes the engine
+-- re-fire the UI's OnSelectionChanged — which calls construction.OnSelection,
+-- whose first act is `UnitViewDetail.Hide()` (construction.lua:2530) followed by a
+-- full rebuild of the build-icon grid. At this loop's 0.1s tick that tore the
+-- hover stats panel down ten times a second, which is the "unit info window only
+-- shows for a split second unless you keep moving the mouse" bug: the panel is
+-- only ever re-shown by a fresh MouseEnter, so it stayed gone until the mouse
+-- moved again.
 local function Pin(factory)
-    factory:SetBuildRate(0)
-    factory:SetPaused(true)
+    -- Unit:GetBuildRate clamps its return to 0.00001 rather than 0 to keep callers
+    -- from dividing by zero (sim/Unit.lua:1149), so this compares against an
+    -- epsilon. A live T1 factory is ~5.
+    if factory:GetBuildRate() > 0.001 then
+        factory:SetBuildRate(0)
+    end
+    if not factory:IsPaused() then
+        factory:SetPaused(true)
+    end
 end
 
 -- Take ownership of a factory the moment it finishes building: pin it to never
@@ -273,23 +290,89 @@ local function UpgradeTargetInQueue(factory)
     return nil
 end
 
-local function SameCounts(a, b)
-    for bp, n in a do
-        if (b[bp] or 0) ~= n then return false end
-    end
-    for bp, n in b do
-        if (a[bp] or 0) ~= n then return false end
+-- Does the visible queue hold AT LEAST everything we've charged for?
+--
+-- This is the test for "did a rebuild land", and it is deliberately one-sided. An
+-- exact-equality test would also fail when the rebuild landed perfectly and the
+-- player clicked one more unit inside the same 0.1s tick, and the retry below
+-- would then quietly throw that click away. A short queue means the re-issue did
+-- not take (the case worth guarding: reading it as "the player cancelled
+-- everything" would refund the whole standing wave); a long one is just a new add,
+-- which the normal diff charges for correctly.
+local function CoversCounts(snapshot, committed)
+    for bp, n in committed do
+        if (snapshot[bp] or 0) < n then return false end
     end
     return true
+end
+
+-- This factory's visible unit orders as runs, in queue order, adjacent duplicates
+-- merged: { { bp = id, count = n }, ... } — one entry per icon the player actually
+-- sees in the queue strip. The engine merges CONSECUTIVE identical BuildFactory
+-- orders itself (that is why clicking one icon twice shows a "2" rather than two
+-- icons) and the UI stacks the same way (construction.lua:2419), so the merge here
+-- is belt and braces. Non-build orders are skipped, exactly as SnapshotOf skips
+-- them.
+local function OrderRunsOf(factory)
+    local runs = {}
+    local queue = factory:GetCommandQueue()
+    if queue then
+        for i, order in queue do
+            local bp = order.blueprintId
+            if bp and order.commandType == BUILD_FACTORY_COMMAND then
+                local last = runs[table.getn(runs)]
+                if last and last.bp == bp then
+                    last.count = last.count + (order.count or 1)
+                else
+                    table.insert(runs, { bp = bp, count = order.count or 1 })
+                end
+            end
+        end
+    end
+    return runs
+end
+
+-- True if some blueprint occupies more than one run — the queue reads
+-- "2 AA, 3 bots, 1 AA" rather than "3 AA, 3 bots". That is what queueing units in
+-- a mixed order gives you, because the engine only ever merges CONSECUTIVE
+-- identical orders.
+local function IsFragmented(runs)
+    local seen = {}
+    for i, run in runs do
+        if seen[run.bp] then
+            return true
+        end
+        seen[run.bp] = true
+    end
+    return false
 end
 
 -- Replace a factory's visible queue with exactly `committed`. There is no way to
 -- remove a single factory order (no re-issue callback in sim/commands/shared.lua),
 -- so this is the engine's own clear-and-reissue pattern (SimUtils.lua:54).
-local function RebuildQueue(factory, committed)
+--
+-- One batched order per blueprint, which is what makes the rebuilt queue read as
+-- grouped. `order` optionally fixes which blueprint goes first (see the regroup in
+-- ReconcileFactory, which passes the order the player first asked for each);
+-- anything not named in it is appended. Queue ORDER reaches no sim state —
+-- `committed` is a bp -> count map and WavesForArmy reads that — so this is free
+-- to be chosen for readability.
+local function RebuildQueue(factory, committed, order)
     IssueClearCommands({ factory })
+    local issued = {}
+    if order then
+        for i, bp in order do
+            local n = committed[bp]
+            if n and n > 0 and not issued[bp] then
+                IssueBuildFactory({ factory }, bp, n)
+                issued[bp] = true
+            end
+        end
+    end
     for bp, n in committed do
-        IssueBuildFactory({ factory }, bp, n)
+        if not issued[bp] then
+            IssueBuildFactory({ factory }, bp, n)
+        end
     end
 end
 
@@ -389,6 +472,7 @@ local function ReconcileFactory(armyName, brain, records, rec)
     end
 
     local snapshot = SnapshotOf(f)
+    local runs = OrderRunsOf(f)
 
     -- If we rebuilt this queue last tick, verify it actually landed before
     -- diffing. Otherwise a rebuild that failed to take reads as "the player
@@ -396,7 +480,9 @@ local function ReconcileFactory(armyName, brain, records, rec)
     -- exactly what the SetBlockCommandQueue bug did to every air factory.
     if rec.rebuildPending then
         rec.rebuildPending = nil
-        if not SameCounts(snapshot, rec.committed) then
+        local wasRegroup = rec.regroupPending
+        rec.regroupPending = nil
+        if not CoversCounts(snapshot, rec.committed) then
             rec.rebuildTries = (rec.rebuildTries or 0) + 1
             if rec.rebuildTries <= 3 then
                 RebuildQueue(f, rec.committed)
@@ -405,6 +491,13 @@ local function ReconcileFactory(armyName, brain, records, rec)
             end
             WARN('LineWars: queue rebuild for ' .. armyName ..
                 ' never landed after 3 tries; falling back to refund')
+        elseif wasRegroup and IsFragmented(runs) then
+            -- The regroup landed but did not group, so the engine is not honouring
+            -- the batched count. Give up on this factory rather than clearing and
+            -- re-issuing its queue ten times a second for the rest of the game.
+            rec.groupingUnsupported = true
+            WARN('LineWars: queue regroup for ' .. armyName ..
+                ' did not group; leaving this factory ungrouped')
         end
         rec.rebuildTries = nil
     end
@@ -463,6 +556,30 @@ local function ReconcileFactory(armyName, brain, records, rec)
     end
 
     rec.committed = newCommitted
+
+    -- Tidy the visible queue. Queueing AA, bot, AA, bot, bot leaves the engine's
+    -- own queue reading "1 AA, 1 bot, 1 AA, 2 bots" — it only merges CONSECUTIVE
+    -- identical orders — which gets unreadable fast on a standing wave you keep for
+    -- the whole game. Re-issue it as one batched order per blueprint, ordered by
+    -- when the player first asked for each, so the same clicks read "2 AA, 3 bots".
+    --
+    -- Purely cosmetic and safe to reorder: `committed` is a bp -> count map and
+    -- WavesForArmy spawns from that, so the queue's ORDER reaches no sim state.
+    -- Cheap too — the clear-and-reissue only happens on the tick a click actually
+    -- fragments the queue, and a click that merges onto an existing run (the common
+    -- case, once grouped) leaves nothing to do.
+    --
+    -- Skipped after a rejection rebuild, which is already grouped, and skipped for
+    -- good once groupingUnsupported is set by the verification above.
+    if not rejected and not rec.groupingUnsupported and IsFragmented(runs) then
+        local order = {}
+        for i, run in runs do
+            table.insert(order, run.bp)
+        end
+        RebuildQueue(f, newCommitted, order)
+        rec.rebuildPending = true
+        rec.regroupPending = true
+    end
 end
 
 -- Nothing should ever finish building in a player army: the factories are pinned

@@ -98,6 +98,44 @@ actually matters (nothing is paid until the unit completes). Units that have
 already completed are committed to the wave. The refund *mechanic* is one line
 (`GiveResource`); only the *button* is blocked.
 
+## Resolved: the queue reads as a mess (2026-07-26)
+
+Queueing AA, bot, AA, bot, bot showed up as **1 AA, 1 bot, 1 AA, 2 bots**. The
+engine merges only *consecutive* identical `BuildFactory` orders (the UI stacks the
+same way, `construction.lua:2419`), so any mixed-order queueing fragments — and
+because this queue is a **standing** wave you keep for the whole game, the mess
+accumulates rather than draining away.
+
+`ReconcileFactory` now regroups it: when a blueprint occupies more than one run
+(`IsFragmented`), the queue is cleared and re-issued as **one batched
+`IssueBuildFactory` per blueprint**, ordered by when the player first asked for
+each — so those clicks read **2 AA, 3 bots**.
+
+Why this is safe and cheap:
+
+* **Order reaches no sim state.** `rec.committed` is a `bp -> count` map and
+  `WavesForArmy` spawns from that, so nothing downstream can see the queue order.
+  Purely cosmetic, and therefore free to be chosen for readability.
+* **No polling was needed.** The 0.1s reconcile loop already diffs the queue every
+  tick, so the regroup happens on the tick the fragmenting click lands. Once
+  grouped, a click on a unit already in the queue merges onto its run (the engine
+  does that itself) and there is nothing to do — no clear-and-reissue.
+* **It cannot thrash.** If a regroup lands but the queue is still fragmented, the
+  engine is not honouring the batched count; `rec.groupingUnsupported` is latched
+  and that factory is never regrouped again.
+
+The "did the rebuild land" check was loosened from exact equality to
+`CoversCounts` (snapshot holds *at least* what we charged for) at the same time. It
+still guards the case worth guarding — a re-issue that silently failed must not
+read as "the player cancelled everything" and refund the whole wave — while
+letting a click that lands inside the same 0.1s tick as a rebuild be charged
+normally instead of thrown away.
+
+Residual rough edge: a *cancellation* landing in the 0.1s tick right after a
+rebuild still reads as a failed rebuild and is re-issued, so the player has to
+click again. No resources move; it was already the behaviour for rejection
+rebuilds, and regrouping just makes the window easier to hit.
+
 ## Resolved: economy of the never-build queue (2026-07-21)
 
 Decision: adopt the **queue-as-wave-list** variant (open question 1, "reading

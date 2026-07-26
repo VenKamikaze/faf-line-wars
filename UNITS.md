@@ -144,10 +144,6 @@ model and name whoever builds it.
 | T3 Mobile AA | 3 | Aeon | `dalk003` | Redeemer | 600 | 3000* | 1700 | 3.3 |
 | T3 Mobile AA | 3 | Cybran | `drlk001` | Bouncer | 600 | 3000* | 1900 | 3.6 |
 | T3 Mobile AA | 3 | Seraphim | `dslk004` | Uyanah | 720 | 3600* | 1800 | 3.4 |
-| Mobile Shield | 3 | UEF | `uel0309` | ? | 312 | 1560 | 800 | 1.9 |
-| Mobile Shield | 3 | Aeon | `ual0309` | ? | 312 | 1560 | 680 | 1.9 |
-| Mobile Shield | 3 | Cybran | `url0309` | ? | 312 | 1560 | 740 | 1.9 |
-| Mobile Shield | 3 | Seraphim | `xsl0309` | Iyathuum | 312 | 1560 | 700 | 1.9 |
 | Faction Special | 3 | UEF | `xel0305` | Percival | 1280 | 6400* | 7200 | 2.2 |
 | Faction Special | 3 | Aeon | `xal0305` | Sprite Striker | 700 | 3500* | 500 | 2.5 |
 | Faction Special | 3 | Cybran | `xrl0305` | The Brick | 1280 | 6400* | 7500 | 2.4 |
@@ -227,10 +223,6 @@ factories together.
 | 270 | 1350* | Specter (`uaa0203`) | Aeon | Gunship | Air Factory | 848 |
 | 270 | 1350* | Renegade (`ura0203`) | Cybran | Gunship | Air Factory | 832 |
 | 290 | 1500 | Rhino (`url0202`) | Cybran | Heavy Tank | Land Factory | 1900 |
-| 312 | 1560 | ? (`ual0309`) | Aeon | Mobile Shield | Land Factory | 680 |
-| 312 | 1560 | ? (`uel0309`) | UEF | Mobile Shield | Land Factory | 800 |
-| 312 | 1560 | ? (`url0309`) | Cybran | Mobile Shield | Land Factory | 740 |
-| 312 | 1560 | Iyathuum (`xsl0309`) | Seraphim | Mobile Shield | Land Factory | 700 |
 | 360 | 1800* | Janus (`dea0202`) | UEF | Fighter/Bomber | Air Factory | 1200 |
 | 360 | 1800 | Obsidian (`ual0202`) | Aeon | Heavy Tank | Land Factory | 1250 |
 | 360 | 1800 | Ilshavoh (`xsl0202`) | Seraphim | Heavy Tank | Land Factory | 2500 |

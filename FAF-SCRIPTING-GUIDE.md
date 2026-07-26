@@ -1110,6 +1110,8 @@ them off, or you are measuring their numbers, not yours.
 | …and it gets worse the faster the sim speed | The period is paced with `WaitSeconds` (game time) while the fade is real time. Pace it against the wall clock. (§9a) |
 | A map's objectives never appear on screen | The objectives panel is only created in campaign mode. (§9a) |
 | Unexpected extra ACUs | An army's `INITIAL` group is nil/empty and `CreateInitialArmyGroup` spawned a commander. (§5) |
+| The hover unit-info panel flashes and vanishes; it comes back only while the mouse keeps moving | A fast script loop is re-setting unit state (e.g. `SetPaused`/`SetBuildRate`) that has not changed. Every re-fire of `OnSelectionChanged` runs `construction.OnSelection`, which calls `UnitViewDetail.Hide()` and rebuilds the build-icon grid; only a fresh MouseEnter re-shows it. Check before you set. (§8) |
+| A re-issued factory queue reads as scattered single icons | The engine merges only *consecutive* identical `BuildFactory` orders. Issue one `IssueBuildFactory(units, bp, n)` per blueprint. (§8) |
 
 ---
 
