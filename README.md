@@ -367,6 +367,16 @@ practical choice rather than a round-long trek. A 1s tick then enforces:
   rather than `FactoryQueue`'s charge/refund machinery, since the ACU builds
   them directly instead of queuing them.
 
+**ACU tech upgrades** are the stock enhancements and are optional (nothing in
+the map gates on them; they buy build rate, health and regen). The tech-3 one,
+`T3Engineering`, is repriced by `units/LineWars_units.bp` from stock 2400 mass
+to **1500** — a nested `Enhancements` merge, which `BlueprintMerged` recurses
+into, so only that one field moves. Enhancement costs are absolute, not
+differential like the factory upgrades, and are paid off gradually over
+`BuildTime` rather than charged atomically, so the energy half (left at stock
+50000, against 100 e/s base income) is the real gate rather than the army energy
+cap. Its prerequisite `AdvancedEngineering` is untouched at 800m/21000e.
+
   **T3 Point Defense is one building for everyone.** Stock FA ships exactly one,
   the UEF **Ravager** (`xeb2306`), and an ACU's `BuildableCategory` is
   faction-scoped (`"BUILTBYTIER3COMMANDER CYBRAN"`), so only a UEF ACU could

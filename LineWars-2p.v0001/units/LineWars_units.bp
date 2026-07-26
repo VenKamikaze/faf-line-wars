@@ -300,3 +300,33 @@ UnitBlueprint {
         [20] = 'SERAPHIM',
     },
 }
+
+--------------------------------------------------------------------------
+-- ACU tech-3 upgrade (the T3Engineering enhancement): 2400 mass -> 1500.
+--
+-- Not an Economy merge, so it cannot ride in OVERRIDES above (that loop only
+-- forwards the four Economy fields, and tools/gen-units-md.py parses the table's
+-- literal shape). Enhancement costs are absolute — the differential rule that
+-- governs factory upgrades does not apply here, so 1500 is what the player pays.
+--
+-- BlueprintMerged recurses into nested tables (lua/system/Blueprints.lua:101),
+-- so naming only BuildCostMass leaves the rest of the enhancement — Prerequisite
+-- (AdvancedEngineering, itself 800m/21000e), BuildTime, NewBuildRate, Icon,
+-- BuildableCategoryAdds — at stock. Same reason the string-keyed table is safe
+-- where the Ravager's array-like Categories was not.
+--
+-- Energy is deliberately left at stock 50000: Kamikaze asked for the mass price
+-- only. Unlike a factory upgrade, an enhancement is paid off over its BuildTime
+-- rather than charged atomically, so it is not gated by the army energy cap —
+-- but at 100 e/s of base income it is still the long pole in the upgrade.
+for i, acu in { 'uel0001', 'ual0001', 'url0001', 'xsl0001' } do
+    UnitBlueprint {
+        Merge = true,
+        BlueprintId = acu,
+        Enhancements = {
+            T3Engineering = {
+                BuildCostMass = 1500,
+            },
+        },
+    }
+end
