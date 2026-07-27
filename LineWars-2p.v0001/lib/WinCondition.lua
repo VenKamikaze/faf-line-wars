@@ -90,4 +90,8 @@ function SpawnCores()
             ScenarioFramework.CreateUnitDeathTrigger(OnCoreKilled, core)
         end
     end
+    -- Dial the Cores down from the stock T3 pgen's flat 2500 e/s to what round 1
+    -- is worth, before the start delay hands anyone free energy. RoundManager
+    -- re-applies this at the top of every round.
+    CoreStorage.ApplyCoreEnergy(ScenarioInfo.LW.Round)
 end

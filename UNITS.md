@@ -57,9 +57,10 @@ as this tier minus the tier below.
 
 Built directly by the ACU on its own side of the lane midline — exempt from
 the no-build zone (that is the point: it's how you hold a forward choke), but
-never past the midline. No tier needs an ACU upgrade: the stock ACU's
-BuildableCategory already carries BUILTBYCOMMANDER, BUILTBYTIER2COMMANDER
-and BUILTBYTIER3COMMANDER from the start. These use the engine's own
+never past the midline. The tier column is a real gate the engine applies: a
+pre-upgrade ACU does not show T3 items in its build menu, even though the stock
+BuildableCategory carries BUILTBYCOMMANDER, BUILTBYTIER2COMMANDER and
+BUILTBYTIER3COMMANDER from the start. These use the engine's own
 construction economy (cost drains gradually over BuildTime) rather than the
 factory-queue charge/refund path, so a value here exceeding a storage cap is
 a slow build, not a hard block.
@@ -99,6 +100,27 @@ model and name whoever builds it.
 | T3 Point Defense | 3 | Aeon | `xeb2306` | 1080* | 7560* | 6500 |
 | T3 Point Defense | 3 | Cybran | `xeb2306` | 1080* | 7560* | 6500 |
 | T3 Point Defense | 3 | Seraphim | `xeb2306` | 1080* | 7560* | 6500 |
+
+## ACU-built experimentals
+
+One per faction, built directly by the ACU — but only once it has the Tech 3
+Engineering Suite enhancement. The engine gates that itself (T3 items are
+hidden from a pre-upgrade ACU's build menu); `lib/Experimentals.lua` adds a
+build restriction on top as belt-and-braces, behind
+`Config.ExperimentalsScriptTierGate`. The moment one completes it is transferred into the
+builder's ARMY_WAVE_n and sent marching down the lane it was built in — the
+player never gets to drive it.
+
+Priced at a QUARTER of stock mass and a FIFTH of stock energy, so unlike
+everything else here they are not on the ~1:5 curve. Like the defense
+structures they drain gradually over BuildTime, so no storage cap blocks them.
+
+| Unit | Faction | Blueprint | Name | Mass | Energy | Health | Speed |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| Fatboy | UEF | `uel0401` | Fatboy | 7000* | 70000* | 12500 | 1.8 |
+| Colossus | Aeon | `ual0401` | Galactic Colossus | 6875* | 68750* | 99999 | 2.4 |
+| Monkeylord | Cybran | `url0402` | Monkeylord | 5000* | 52000* | 45000 | 2.5 |
+| Ythotha | Seraphim | `xsl0401` | Ythotha | 6625* | 66000* | 67000 | 2.5 |
 
 ## Land Factory units
 

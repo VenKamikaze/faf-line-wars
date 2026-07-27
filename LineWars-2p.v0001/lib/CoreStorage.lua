@@ -104,6 +104,30 @@ function GrantForRound(round)
         ' energy storage per player for round ' .. round)
 end
 
+-- Set every living player's Core to the energy output its round is worth
+-- (Config.CoreEnergyForRound). Called once from WinCondition.SpawnCores so the
+-- Core never pays the stock 2500 e/s even during the start delay, and again at
+-- the top of every round from RoundManager.
+--
+-- SetProductionPerSecondEnergy is a live engine setter, not a blueprint edit —
+-- the distinction that matters here is the one in the .bp header: a map .bp
+-- merge on ueb1301 would be silently overridden by any unit-overhaul mod that
+-- also touches it, whereas this call reaches the engine directly and holds
+-- whatever is loaded. Nothing re-applies the blueprint value behind us:
+-- Unit.UpdateProductionValues (sim/Unit.lua:1265) only runs when an energy- or
+-- mass-production BUFF is applied or removed, and the map never buffs a Core.
+function ApplyCoreEnergy(round)
+    local LW = ScenarioInfo.LW
+    local rate = Config.CoreEnergyForRound(round)
+    for i, armyName in LW.ActivePlayers do
+        local core = LW.Cores[armyName]
+        if core and not core.Dead then
+            core:SetProductionPerSecondEnergy(rate)
+        end
+    end
+    Config.Log('core energy set to ' .. rate .. ' e/s for round ' .. tostring(round))
+end
+
 -- Destroy this army's storage units (called from WinCondition.OnCoreKilled).
 function CleanupFor(armyName)
     local LW = ScenarioInfo.LW

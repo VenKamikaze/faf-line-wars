@@ -16,6 +16,7 @@ local AcuRules = import(DIR .. 'lib/AcuRules.lua')
 local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
 local CoreStorage = import(DIR .. 'lib/CoreStorage.lua')
 local AirGate = import(DIR .. 'lib/AirGate.lua')
+local Experimentals = import(DIR .. 'lib/Experimentals.lua')
 local WaveSpawner = import(DIR .. 'lib/WaveSpawner.lua')
 local CapturePoints = import(DIR .. 'lib/CapturePoints.lua')
 local ChatCommands = import(DIR .. 'lib/ChatCommands.lua')
@@ -72,7 +73,7 @@ function OnStart(self)
     -- build the Core (T3, and all engineers are restricted). FactoryQueue's
     -- allowed set covers ACU + the land/air factories + the wave units.
     local allowed = FactoryQueue.AllowedCategories() + categories[Config.CoreBlueprint]
-                    + CoreStorage.AllowedCategories()
+                    + CoreStorage.AllowedCategories() + Experimentals.AllowedCategories()
     for i, armyName in LW.ActivePlayers do
         local brain = GetArmyBrain(armyName)
         local mySide = Config.PlayerArmies[armyName].side
@@ -103,6 +104,7 @@ function OnStart(self)
     CoreStorage.Start()    -- inits LW.Storage; must follow SpawnCores, precede RoundManager
     FactoryQueue.Start()   -- starts the queue poll; players build their own factories
     AirGate.Start()        -- locks air until the chosen round; must follow the restriction loop
+    Experimentals.Start()  -- locks the ACU's experimental until it has tech 3; likewise
     Economy.Start()
     CapturePoints.Start()  -- lane capture points: land units capture, income to the side
 

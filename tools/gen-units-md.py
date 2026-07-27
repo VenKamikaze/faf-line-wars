@@ -108,14 +108,19 @@ def parse_acu_structures(path):
 
     Same shape as a Factories role ({name, tier, byFaction}), but AcuStructures
     is a standalone top-level table (structures the ACU builds directly, never
-    queued in a factory) — scanned from its own marker to EOF rather than via
+    queued in a factory) — scanned from its own marker rather than via
     parse_unit_types' per-factory header regex.
+
+    Bounded at the AcuExperimentals marker for the same reason parse_unit_types
+    is bounded here: a later table with rows of a similar shape would otherwise
+    be swallowed by the unbounded tail.
     """
     text = strip_lua_comments(open(path, encoding="utf-8").read())
     m = re.search(r"AcuStructures\s*=\s*\{", text)
     if not m:
         sys.exit("gen-units-md: no AcuStructures table found in %s" % path)
-    body = text[m.end():]
+    end = re.search(r"^AcuExperimentals\s*=", text, re.M)
+    body = text[m.end():end.start() if end else len(text)]
     return [
         {"name": rn, "tier": int(rt or 1), "units": parse_id_list(rb)}
         for rn, rt, rb in re.findall(
@@ -123,6 +128,26 @@ def parse_acu_structures(path):
             r"(?:\s*tier\s*=\s*(\d+)\s*,)?"
             r"\s*byFaction\s*=\s*\{([^}]*)\}",
             body,
+        )
+    ]
+
+
+def parse_acu_experimentals(path):
+    """-> [ {name, faction (1-based), id} ] from the AcuExperimentals table.
+
+    A different row shape from AcuStructures: one unit per faction rather than a
+    role with a four-entry byFaction list, because each faction has exactly one
+    and the ids share no naming pattern.
+    """
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    m = re.search(r"AcuExperimentals\s*=\s*\{", text)
+    if not m:
+        return []
+    return [
+        {"name": rn, "faction": int(rf), "id": rid}
+        for rn, rf, rid in re.findall(
+            r"name\s*=\s*'([^']+)'\s*,\s*faction\s*=\s*(\d+)\s*,\s*id\s*=\s*'([^']+)'",
+            text[m.end():],
         )
     ]
 
@@ -250,13 +275,15 @@ def main():
     )
     kinds = parse_unit_types(UNIT_TYPES)
     structures = parse_acu_structures(UNIT_TYPES)
+    experimentals = parse_acu_experimentals(UNIT_TYPES)
     overrides = parse_overrides(OVERRIDES_BP)
     stock = load_stock(os.path.expanduser(args.gamedata))
 
     for uid in [u for k in kinds for r in k["roles"] for u in r["units"]] + \
                [f for k in kinds for f in k["factories"]] + \
                [f for k in kinds for ids in k["tiers"].values() for f in ids] + \
-               [u for s in structures for u in s["units"]]:
+               [u for s in structures for u in s["units"]] + \
+               [e["id"] for e in experimentals]:
         if uid is not None and uid not in stock:
             sys.exit("gen-units-md: %s is not a real blueprint id" % uid)
 
@@ -317,9 +344,10 @@ def main():
     L.append("")
     L.append("Built directly by the ACU on its own side of the lane midline — exempt from")
     L.append("the no-build zone (that is the point: it's how you hold a forward choke), but")
-    L.append("never past the midline. No tier needs an ACU upgrade: the stock ACU's")
-    L.append("BuildableCategory already carries BUILTBYCOMMANDER, BUILTBYTIER2COMMANDER")
-    L.append("and BUILTBYTIER3COMMANDER from the start. These use the engine's own")
+    L.append("never past the midline. The tier column is a real gate the engine applies: a")
+    L.append("pre-upgrade ACU does not show T3 items in its build menu, even though the stock")
+    L.append("BuildableCategory carries BUILTBYCOMMANDER, BUILTBYTIER2COMMANDER and")
+    L.append("BUILTBYTIER3COMMANDER from the start. These use the engine's own")
     L.append("construction economy (cost drains gradually over BuildTime) rather than the")
     L.append("factory-queue charge/refund path, so a value here exceeding a storage cap is")
     L.append("a slow build, not a hard block.")
@@ -341,6 +369,34 @@ def main():
                 cost(uid, "energy", "BuildCostEnergy", stock, overrides),
                 num(stock[uid].get("health")),
             ))
+    L.append("")
+
+    L.append("## ACU-built experimentals")
+    L.append("")
+    L.append("One per faction, built directly by the ACU — but only once it has the Tech 3")
+    L.append("Engineering Suite enhancement. The engine gates that itself (T3 items are")
+    L.append("hidden from a pre-upgrade ACU's build menu); `lib/Experimentals.lua` adds a")
+    L.append("build restriction on top as belt-and-braces, behind")
+    L.append("`Config.ExperimentalsScriptTierGate`. The moment one completes it is transferred into the")
+    L.append("builder's ARMY_WAVE_n and sent marching down the lane it was built in — the")
+    L.append("player never gets to drive it.")
+    L.append("")
+    L.append("Priced at a QUARTER of stock mass and a FIFTH of stock energy, so unlike")
+    L.append("everything else here they are not on the ~1:5 curve. Like the defense")
+    L.append("structures they drain gradually over BuildTime, so no storage cap blocks them.")
+    L.append("")
+    L.append("| Unit | Faction | Blueprint | Name | Mass | Energy | Health | Speed |")
+    L.append("| --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
+    for e in sorted(experimentals, key=lambda r: r["faction"]):
+        uid = e["id"]
+        L.append("| %s | %s | `%s` | %s | %s | %s | %s | %s |" % (
+            e["name"], factions[e["faction"] - 1], uid,
+            stock[uid].get("name") or "?",
+            cost(uid, "mass", "BuildCostMass", stock, overrides),
+            cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+            num(stock[uid].get("health")),
+            num(stock[uid].get("speed")),
+        ))
     L.append("")
 
     for k in kinds:

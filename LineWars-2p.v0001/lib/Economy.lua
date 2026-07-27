@@ -19,23 +19,42 @@ local function SpawnerIncomeFor(brain)
     return income
 end
 
+-- Both models feed their BASE term through the periodic growth multiplier (the
+-- "Income growth interval"/"Income growth step" lobby options). It is folded into
+-- the same bracket as model 2's own per-round growth rather than multiplied over
+-- the top of it, so the two curves ADD instead of compounding — one 50% step and
+-- one 25% step is 175% of base, not 187.5%.
 local function MassIncomeFor(brain, round)
+    local growth = Config.IncomeGrowthMultiplier(round) - 1
     if Config.GetIncomeModel() == 2 then
-        return Config.BaseMassIncome * (1 + Config.FlatIncomeGrowthPerRound * (round - 1))
+        return Config.BaseMassIncome *
+            (1 + Config.FlatIncomeGrowthPerRound * (round - 1) + growth)
     end
-    return Config.BaseMassIncome + SpawnerIncomeFor(brain)
+    return Config.BaseMassIncome * (1 + growth) + SpawnerIncomeFor(brain)
+end
+
+-- Energy has only the one curve, so it is the plain multiplier.
+local function EnergyIncomeFor(round)
+    return Config.BaseEnergyIncome * Config.IncomeGrowthMultiplier(round)
 end
 
 local function EconomyLoop()
     local LW = ScenarioInfo.LW
     local tick = Config.EconomyTickSeconds
+    local logged = nil   -- last round whose income was logged
     while not LW.GameOver do
         WaitSeconds(tick)
+        local energy = EnergyIncomeFor(LW.Round)
+        if logged ~= LW.Round then
+            logged = LW.Round
+            Config.Log('round ' .. LW.Round .. ' income multiplier x' ..
+                Config.IncomeGrowthMultiplier(LW.Round) .. ' (energy ' .. energy .. '/s)')
+        end
         for i, armyName in LW.ActivePlayers do
             if not LW.Dead[armyName] then
                 local brain = GetArmyBrain(armyName)
                 brain:GiveResource('Mass', MassIncomeFor(brain, LW.Round) * tick)
-                brain:GiveResource('Energy', Config.BaseEnergyIncome * tick)
+                brain:GiveResource('Energy', energy * tick)
             end
         end
     end

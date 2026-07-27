@@ -35,7 +35,8 @@ enable. Keeping it that way constrains some of the design; see
 - [x] Defense structures: T1/T2/T3 Point Defense, T1/T2/T3 AA, T2 Shield, built directly by the ACU on its own side of the lane
 - [x] Tech 3: land and air factory upgrades, symmetric roles + one signature unit per faction per domain
 - [x] In-game test of tier 3 and of the differential upgrade-cost fix
-- [ ] More unit roles (experimental mass sink)
+- [x] ACU-built experimentals (one per faction, tech-3 gated, handed to the wave army on completion)
+- [x] Core energy output ramps with the round instead of a flat 2500 e/s
 
 ## Layout
 
@@ -142,8 +143,42 @@ No mass extractors and no reclaim — **all income is script-granted** by
 | Mass/s | `BaseMassIncome` + sum of each completed spawner's `income` | `BaseMassIncome × (1 + 0.25 × (round − 1))` |
 | Effect | Nexus-Wars style: spawners are both army *and* investment | Everyone earns the same; spawners are army only |
 
-Both models grant a flat `BaseEnergyIncome` (100/s). Energy is deliberately not
-meant to be a constraint in v1. Starting resources are 150 mass / 500 energy.
+Both models grant a flat `BaseEnergyIncome` (100/s). Starting resources are 150
+mass / 500 energy.
+
+**Income growth is a lobby option, applied to mass and energy alike.** Two paired
+options drive it: **Income growth interval** (Never / every 1–10 rounds, default
+every 4) and **Income growth step** (25–200% of base, default 50%). A step lands
+**on each multiple of the interval** — at the default of 4 that is rounds 4, 8,
+12, 16. Steps are **additive on the base, not compounding**: at the defaults you
+earn 100% of base for rounds 1–3, 150% from round 4, 200% from round 8, which is
+a straight line rather than a curve that runs away by round 20.
+`Config.IncomeGrowthMultiplier`
+is the single source; `Economy.lua` folds it into the same bracket as income
+model 2's own per-round growth so the two curves add instead of multiplying.
+
+**The Core pays a flat energy income.** The Core is a UEF T3 power generator
+(`ueb1301`), which at stock produces **2500 e/s** from the moment it is spawned —
+twenty-five times `BaseEnergyIncome`, which is why the "energy is the scarce
+resource" reasoning behind the 1:5 unit prices never really bit in play.
+`CoreStorage.ApplyCoreEnergy` sets each Core to `Config.CoreEnergyForRound(round)`
+= `CoreEnergyBase` (**500**) plus `CoreEnergyPerRound` for each round after the
+first, capped at `CoreEnergyMax`. Applied once from `WinCondition.SpawnCores` (so
+the start delay isn't free energy) and again at the top of every round.
+
+**`CoreEnergyPerRound` is 0, so that ramp is deliberately switched off** — economy
+growth belongs in one place and that place is the two lobby options above. The
+machinery is kept rather than deleted: set `CoreEnergyPerRound` non-zero and the
+Core scales again with no other change.
+
+This uses the live engine setter `Unit:SetProductionPerSecondEnergy`, **not** a
+`.bp` merge, deliberately: a map blueprint merge on `ueb1301` would be silently
+overridden by a unit-overhaul mod, whereas the setter reaches the engine directly
+whatever is loaded. Nothing re-applies the blueprint value behind it —
+`Unit.UpdateProductionValues` (`sim/Unit.lua:1265`) only runs when an
+energy/mass-production *buff* is applied or removed, and the map never buffs a
+Core. Total round-1 energy income is therefore ~620/s (Core 500 +
+`BaseEnergyIncome` 100 + the ACU's stock 20), before capture points.
 
 Two caveats now that spawner structures are gone: **model 1 is currently
 identical to a flat `BaseMassIncome`** (there are no spawners left to add income),
@@ -359,10 +394,14 @@ practical choice rather than a round-long trek. A 1s tick then enforces:
   actually nearest (`FactoryQueue.LaneForPosition`, the same rule factories use
   for lane binding — so one built in a teammate's reinforced lane is judged by
   that lane's Cores). A structure that ends up past the midline is refunded
-  pro-rata and destroyed, exactly like any other no-build-zone violation. No ACU
-  upgrade is needed at any tier: the stock `BuildableCategory` already carries
-  `BUILTBYCOMMANDER`, `BUILTBYTIER2COMMANDER` and `BUILTBYTIER3COMMANDER` from
-  the start (`UEL0001_unit.bp:227-231`). These use the engine's own
+  pro-rata and destroyed, exactly like any other no-build-zone violation. **The
+  tier column is a real gate, and the engine applies it** — a pre-upgrade ACU
+  does not show T3 items in its build menu (original SupCom behaviour, confirmed
+  in game). Note the blueprints alone would suggest otherwise: the stock
+  `BuildableCategory` carries `BUILTBYCOMMANDER`, `BUILTBYTIER2COMMANDER` **and**
+  `BUILTBYTIER3COMMANDER` from the start with no prerequisite
+  (`UEL0001_unit.bp:227-231`), so do not conclude from that line that T3 is
+  ungated. These use the engine's own
   construction economy (cost drains gradually over `BuildTime`, gated normally)
   rather than `FactoryQueue`'s charge/refund machinery, since the ACU builds
   them directly instead of queuing them.
@@ -390,6 +429,63 @@ cap. Its prerequisite `AdvancedEngineering` is untouched at 800m/21000e.
   T3 AA. If a unit-overhaul mod with real per-faction T3 PD is loaded its ids
   aren't in `UnitTypes.AcuStructures`, so the map hides them and the Ravager
   stays — one more reason to play without those mods.
+
+### ACU experimentals
+
+`lib/Experimentals.lua`. One land experimental per faction, built **directly by
+the ACU** like the defense structures, but with two twists: it is gated behind
+the ACU's tech-3 upgrade, and the player never gets to drive it.
+
+| Faction | Unit | Blueprint | Mass | Energy |
+| --- | --- | --- | ---: | ---: |
+| UEF | Fatboy | `uel0401` | 7000 | 70000 |
+| Aeon | Galactic Colossus | `ual0401` | 6875 | 68750 |
+| Cybran | Monkeylord | `url0402` | 5000 | 52000 |
+| Seraphim | Ythotha | `xsl0401` | 6625 | 66000 |
+
+Costs are a **quarter of stock mass and a fifth of stock energy** — the one group
+in `units/LineWars_units.bp` that overrides mass, and the one that is not on the
+map's ~1:5 curve.
+
+- **Faction locking is free.** All four already carry both
+  `BUILTBYTIER3COMMANDER` and their own faction category, and every ACU's stock
+  `BuildableCategory` is `{"BUILTBYCOMMANDER <F>", "BUILTBYTIER2COMMANDER <F>",
+  "BUILTBYTIER3COMMANDER <F>"}` — so a Cybran ACU can only ever match the
+  Monkeylord, with no blueprint merge (unlike the Ravager above).
+- **The tier gate is the engine's; the script's is belt-and-braces.** The
+  blueprints read as if T3 were ungated — that third term is present from tick 0
+  with no prerequisite, and `T3Engineering`'s `BuildableCategoryAdds` is the
+  identical string — but the engine does hide T3 items from a pre-upgrade ACU's
+  build menu regardless. `lib/Experimentals.lua` adds a second gate anyway (the
+  `AddRestriction`/`RemoveRestriction` pattern `lib/AirGate.lua` uses, lifted per
+  army once `acu:HasEnhancement('T3Engineering')` goes true, polled on
+  `Config.ExperimentalTickSeconds` — there is no enhancement-finished callback a
+  map can reach). It is behind `Config.ExperimentalsScriptTierGate`: a stuck
+  script gate fails to "never buildable at all", so turn the flag off and rely on
+  the engine if the unlock ever misfires. The completion sweep runs either way.
+- **Ownership transfers on completion.** The same 1s loop sweeps the player's
+  army for a complete experimental and hands it to their `ARMY_WAVE_n` via
+  `SimUtils.TransferUnitsOwnership` (`lua/SimUtils.lua:246`), which carries
+  health, veterancy and orientation across, and — the reason to use it rather
+  than `ChangeUnitArmy` directly — handles the Fatboy's `ExternalFactory` child
+  explicitly. It returns **new** units; the originals are gone. `WaveSpawner`
+  gained `MarchUnits(armyName, lane, units)` so the new unit is sent down its
+  lane immediately rather than waiting up to 10s for the idle watchdog.
+  Candidates are sorted by cached `.EntityId` before transferring, because each
+  transfer allocates a new entity id and that order is sim state.
+- **A third `UnitTypes` table, `AcuExperimentals`.** These ids must stay out of
+  `AllUnitIds()` for the same reason `AcuStructures` does: it feeds
+  `FactoryQueue.WaveCategory()` and hence `PurgeStrayUnits`, which `Destroy()`s
+  any unit of that category found in a player army every tick — and a half-built
+  experimental legitimately sits there for minutes.
+- **No no-build/midline handling.** `AcuRules`' sweep only walks
+  `categories.STRUCTURE`, and these are `MOBILE`. One sited inside a no-build
+  corridor leaves under its own orders within the second, so there is nothing to
+  wall a lane with.
+- **Build time is left at stock.** A pre-upgrade ACU (build rate 10 x
+  `AcuBuildRateMult` 4) would take ~20 minutes on a Fatboy, but `T3Engineering`
+  sets `NewBuildRate = 100`, so a tech-3 ACU is at ~2 minutes. The gate pays for
+  itself.
 
 ### Win condition
 
@@ -498,6 +594,8 @@ not a value key. Every option here lists its default first and uses
 | Core toughness | `opt_lw_core_health` | **Normal**, x2, x4 |
 | Allow air units from round | `opt_lw_air_from_round` | **3**, Immediate, 2, 4, 5, 10, Never |
 | Map start delay | `opt_lw_start_delay` | **10s**, None, 5s, 15s, 30s, 60s, 120s |
+| Income growth interval | `opt_lw_income_growth_rounds` | **Every 4 rounds**, Never, every 1/2/3/5/6/7/8/9/10 |
+| Income growth step | `opt_lw_income_growth_pct` | **50%**, 25%, 75%, 100%, 150%, 200% |
 | Capture point income | `opt_lw_capture_income` | **Average**, Very low, Low, High, Very high |
 | SOS uses per player | `opt_lw_sos_charges` | **1**, None, 2, 3 |
 | SOS destroys | `opt_lw_sos_targets` | Enemy units only, **Every unit in the lane** |
@@ -507,6 +605,13 @@ Air gating (`lib/AirGate.lua`) locks the air factory and air units behind an
 tech-phase pattern), lifted when the round counter reaches the chosen round.
 `Never` = 9999 sentinel (`Config.AirNeverRound`). The start delay replaces the
 old fixed `InitialGraceSeconds`.
+
+The two **income growth** options are a pair and only make sense read together —
+interval says *how often*, step says *how much*, both as a share of base income
+and additive rather than compounding (`Config.IncomeGrowthMultiplier`). `Never` =
+the same 9999 sentinel, here `Config.IncomeGrowthNever`. "Every X rounds" means a
+step on each multiple of X — rounds 4, 8, 12 at the default. One corner falls out
+of that: at "every 1 round" round 1 is already one step above base.
 
 Read via accessors in `Config.lua` that supply defaults, because
 `ScenarioInfo.Options` may be missing keys on offline/sandbox starts. **Keep each
@@ -531,6 +636,25 @@ one exception — they use real ACU construction, so `BuildTime` also matters
 there.
 
 ### Open balance questions
+
+- **Experimental affordability, and the Colossus's 99999 HP.** At a quarter of
+  stock mass a Fatboy is 7000 mass; against `BaseMassIncome` 2/s plus capture
+  points that is many rounds of *total* income during which the ACU builds
+  nothing else, so the first in-game question is simply whether anyone ever
+  finishes one. Mass is the lever (energy at a fifth of stock is comparatively
+  the cheaper half). Separately: FAF's Galactic Colossus really does ship with
+  **99999 health** against the Fatboy's 12500 and the Monkeylord's 45000, so the
+  four are nowhere near a matched set at equal price. A `Defense.MaxHealth`
+  nested merge in `units/LineWars_units.bp` would bring it into line the same way
+  the `Enhancements` merge reprices the ACU upgrade.
+- **Core energy vs. the 1:5 unit prices.** Every energy override in
+  `units/LineWars_units.bp` was pitched against "100 e/s", but the Core has been
+  quietly paying 2500 e/s on top all along, so energy has never actually been the
+  constraint those comments assume. `CoreEnergyBase` 500 makes it one for the
+  first time — a fifth of what it was. If early rounds feel energy-starved, raise
+  `CoreEnergyBase` before touching any unit price; it is one number in
+  `lib/Config.lua`. Note energy now also grows with the income-growth options,
+  which the old flat 2500 masked entirely.
 
 - **Bomber energy.** Stock is 90 mass / **2050 energy** against a 3900 energy cap,
   which made a second bomber unqueueable for most of a round. Overridden to 450,

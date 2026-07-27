@@ -236,6 +236,45 @@ local OVERRIDES = {
         BuildCostMass = 1080,
         BuildCostEnergy = 7560,
     },
+    --------------------------------------------------------------------
+    -- Land experimentals (lib/Experimentals.lua). Built DIRECTLY by the ACU once
+    -- it has the Tech 3 Engineering Suite, then handed to the builder's wave army
+    -- the moment they complete. Kamikaze's pricing rule: MASS a quarter of stock,
+    -- ENERGY a fifth of stock — so these are the one group in this file that
+    -- overrides mass as well, and the one group that does NOT land on the ~1:5
+    -- ratio everything else uses (a quarter of mass against a fifth of energy is
+    -- 1:12.5 on the Fatboy).
+    --
+    -- Being ACU-built they drain gradually over BuildTime and stall when income
+    -- runs dry, so — unlike a queued wave unit — neither the mass nor the energy
+    -- storage cap can make them unreachable. What DOES bound them is plain
+    -- income: 7000 mass at the map's few mass/second is a multi-round commitment
+    -- during which the ACU builds nothing else. That is the dial to turn if they
+    -- feel unreachable in play; BuildTime is deliberately left at stock because
+    -- the T3Engineering enhancement raises the ACU's build rate to 100, which
+    -- with Config.AcuBuildRateMult (4) puts the Fatboy at roughly two minutes of
+    -- build time rather than the twenty it would be pre-upgrade.
+    --------------------------------------------------------------------
+    {
+        ids = { 'uel0401' },              -- Fatboy,     stock 28000m / 350000e
+        BuildCostMass = 7000,
+        BuildCostEnergy = 70000,
+    },
+    {
+        ids = { 'ual0401' },              -- Colossus,   stock 27500m / 343750e
+        BuildCostMass = 6875,
+        BuildCostEnergy = 68750,
+    },
+    {
+        ids = { 'url0402' },              -- Monkeylord, stock 20000m / 260000e
+        BuildCostMass = 5000,
+        BuildCostEnergy = 52000,
+    },
+    {
+        ids = { 'xsl0401' },              -- Ythotha,    stock 26500m / 330000e
+        BuildCostMass = 6625,
+        BuildCostEnergy = 66000,
+    },
     {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
         -- (hidden, invulnerable) on each Core at the start of every round holds

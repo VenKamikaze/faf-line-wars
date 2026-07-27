@@ -62,6 +62,23 @@ local function GetMarchPath(lane, side)
     return path
 end
 
+-- Put `units` (already in armyName's wave army) into a platoon and send it down
+-- `lane` from that player's side. Exported for lib/Experimentals.lua, which hands
+-- a finished experimental to the wave army mid-round and wants it marching at
+-- once rather than waiting up to ten seconds for the idle watchdog to find it.
+function MarchUnits(armyName, lane, units)
+    if not units or table.getn(units) == 0 then
+        return
+    end
+    local side = Config.PlayerArmies[armyName].side
+    local waveBrain = GetArmyBrain(Config.WaveArmyOf(armyName))
+    local platoon = waveBrain:MakePlatoon('', '')
+    waveBrain:AssignUnitsToPlatoon(platoon, units, 'Attack', 'GrowthFormation')
+    for i, pos in GetMarchPath(lane, side) do
+        platoon:AggressiveMoveToLocation(pos)
+    end
+end
+
 -- Spawn one wave: `units` blueprints at this lane's spawn marker, marching down
 -- it. The wave belongs to the builder, not to whoever holds the lane.
 local function SpawnWave(armyName, lane, toSpawn)
@@ -87,12 +104,7 @@ local function SpawnWave(armyName, lane, toSpawn)
         return
     end
 
-    local waveBrain = GetArmyBrain(waveArmyName)
-    local platoon = waveBrain:MakePlatoon('', '')
-    waveBrain:AssignUnitsToPlatoon(platoon, units, 'Attack', 'GrowthFormation')
-    for i, pos in GetMarchPath(lane, side) do
-        platoon:AggressiveMoveToLocation(pos)
-    end
+    MarchUnits(armyName, lane, units)
 end
 
 function SpawnWaveForArmy(armyName)
@@ -119,7 +131,6 @@ function StartIdleWatchdog()
             WaitSeconds(10)
             for i, armyName in LW.ActivePlayers do
                 if not LW.Dead[armyName] then
-                    local side = Config.PlayerArmies[armyName].side
                     local waveBrain = GetArmyBrain(Config.WaveArmyOf(armyName))
                     -- Group the idle units by the lane they are currently in, so
                     -- each gets the right march path.
@@ -134,11 +145,7 @@ function StartIdleWatchdog()
                         end
                     end
                     for lane, idle in idleByLane do
-                        local platoon = waveBrain:MakePlatoon('', '')
-                        waveBrain:AssignUnitsToPlatoon(platoon, idle, 'Attack', 'GrowthFormation')
-                        for j, pos in GetMarchPath(lane, side) do
-                            platoon:AggressiveMoveToLocation(pos)
-                        end
+                        MarchUnits(armyName, lane, idle)
                     end
                 end
             end

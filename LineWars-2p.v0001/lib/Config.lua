@@ -109,6 +109,42 @@ CoreBlueprint = 'ueb1301'       -- placeholder: UEF T3 power generator. TODO:
                                 -- replace with a custom blueprint in units/
 CoreBaseHealthMultiplier = 10   -- multiplied further by the lobby option
 
+-- Core energy output, scaled by round (lib/CoreStorage.ApplyCoreEnergy).
+--
+-- The Core is a UEF T3 power generator, and stock ueb1301 produces a flat
+-- 2500 e/s from the moment it is spawned — twenty-five times BaseEnergyIncome
+-- below, which is why every "energy is the scarce resource" comment in
+-- units/LineWars_units.bp reads as optimistic in an actual game. Instead of a
+-- blueprint merge (which a unit-overhaul mod would override — see the .bp
+-- header) the script calls the live engine setter Unit:SetProductionPerSecondEnergy
+-- once per round, so the ramp holds regardless of what mods are loaded.
+--
+-- Round 1 pays CoreEnergyBase; every round after adds CoreEnergyPerRound, up to
+-- CoreEnergyMax.
+--
+-- THE PER-ROUND RAMP IS DELIBERATELY OFF (CoreEnergyPerRound = 0), so the Core
+-- pays a flat CoreEnergyBase all game. Kamikaze's call 2026-07-27: economy growth
+-- belongs in one place, and that place is now the "Income growth interval" /
+-- "Income growth step" lobby options below, which scale every player's base mass
+-- AND energy income together. The ramp machinery is kept intact rather than
+-- deleted — set CoreEnergyPerRound back to a non-zero figure and the Core scales
+-- again with no other change.
+--
+-- Note the Core is not the only energy source: each player also gets
+-- BaseEnergyIncome (100/s), the ACU's stock 20/s, and any capture points held —
+-- so round-1 income is ~620/s, not 500.
+CoreEnergyBase = 500            -- e/s the Core produces (flat, see above)
+CoreEnergyPerRound = 0          -- added per round thereafter; 0 disables the ramp
+CoreEnergyMax = 2500            -- ceiling (the stock T3 pgen output)
+
+function CoreEnergyForRound(round)
+    local e = CoreEnergyBase + CoreEnergyPerRound * ((round or 1) - 1)
+    if e > CoreEnergyMax then
+        e = CoreEnergyMax
+    end
+    return e
+end
+
 --------------------------------------------------------------------------
 -- Economy
 --------------------------------------------------------------------------
@@ -124,6 +160,34 @@ BaseEnergyIncome = 100          -- energy/second, both models (energy is not
                                 -- meant to be a constraint in v1)
 FlatIncomeGrowthPerRound = 0.25 -- income model 2: +25% of base per round
 EconomyTickSeconds = 1
+
+-- Periodic income growth, on top of whichever income model is chosen and applied
+-- to mass AND energy alike (lobby: "Income growth interval" + "Income growth
+-- step"). Growth is a share of the BASE income and steps are ADDITIVE, not
+-- compounding: at the 50% default you earn 100% / 150% / 200% / 250% ... of base,
+-- so it never runs away the way a compounding curve does.
+--
+-- "Every X rounds" means the step lands ON each multiple of X — at the default
+-- of 4 that is rounds 4, 8, 12, 16 (Kamikaze, 2026-07-27), NOT X+1. So the divisor
+-- takes the round number as-is; do not "fix" it to (round - 1).
+--
+-- Corner case that falls out of that: at "every 1 round" the very first round is
+-- already one step above base, since floor(1/1) = 1. That is the consistent
+-- reading of "steps up at every multiple of X" and the option's help text says
+-- so; special-casing it would make 1 the odd rung out.
+--
+-- This sentinel must match the 'Never' value key in LineWars-2p_options.lua.
+IncomeGrowthNever = 9999
+
+-- The multiplier to apply to base income this round: 1 + step x intervals passed.
+function IncomeGrowthMultiplier(round)
+    local every = GetIncomeGrowthRounds()
+    if every >= IncomeGrowthNever or every < 1 then
+        return 1
+    end
+    local steps = math.floor((round or 1) / every)
+    return 1 + steps * (GetIncomeGrowthPercent() / 100)
+end
 
 -- Lane capture points (lib/CapturePoints.lua). LW_Cap<i> blank markers define
 -- fixed-radius circular zones; holding one pays the controlling side extra
@@ -212,6 +276,17 @@ ScoreboardTopSpacerLines = 8
 AcuBuildRateMult = 4            -- ACU build rate multiplier vs stock
 AcuMoveSpeedMult = 4            -- ACU movement speed multiplier vs stock
 AcuRulesTickSeconds = 1         -- how often ACU/no-build rules are enforced
+ExperimentalTickSeconds = 1     -- how often lib/Experimentals.lua checks for the
+                                -- tech-3 upgrade and for a finished experimental
+                                -- to hand to the wave army
+
+-- The engine ALREADY hides T3 items from a pre-upgrade ACU's build menu (Kamikaze,
+-- observed in game 2026-07-27), so the script's own tech-3 restriction is
+-- belt-and-braces, not the mechanism. Set false to drop it and rely on the
+-- engine alone — worth doing if the unlock ever fails to fire, since the failure
+-- mode of a stuck script gate is "experimentals never buildable at all".
+-- lib/Experimentals.lua's completion sweep runs either way.
+ExperimentalsScriptTierGate = true
 MidlineReturnOffset = 10        -- warped-back ACUs land this far in front of their Core
 
 DebugMode = true                -- extra LOG() output while developing
@@ -226,6 +301,17 @@ end
 
 function GetIncomeModel()
     return ScenarioInfo.Options.opt_lw_income_model or 1
+end
+
+-- How many rounds between income growth steps; IncomeGrowthNever = flat all game.
+function GetIncomeGrowthRounds()
+    return ScenarioInfo.Options.opt_lw_income_growth_rounds or 4
+end
+
+-- Percent of BASE income added at each growth step (25..200). See
+-- IncomeGrowthMultiplier above for how the two combine.
+function GetIncomeGrowthPercent()
+    return ScenarioInfo.Options.opt_lw_income_growth_pct or 50
 end
 
 function GetCoreHealthMultiplier()

@@ -42,6 +42,10 @@ local function RoundLoop()
         if LW.Round > 1 then
             CoreStorage.GrantForRound(LW.Round)   -- +storage, before players bank
         end
+        -- Core energy output ramps with the round (WinCondition.SpawnCores set
+        -- the round-1 value); re-applied every round, and after round 1 also
+        -- catches a Core that was rebuilt or a player who joined the ramp late.
+        CoreStorage.ApplyCoreEnergy(LW.Round)
         Announce('Round ' .. LW.Round .. ' — build phase (' .. t .. 's)')
         if t > 30 then
             WaitSeconds(t - 30)

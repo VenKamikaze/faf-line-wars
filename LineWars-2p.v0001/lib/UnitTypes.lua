@@ -151,6 +151,37 @@ AcuStructures = {
     { name = 'T3 Point Defense', tier = 3, byFaction = { 'xeb2306', 'xeb2306', 'xeb2306', 'xeb2306' } },
 }
 
+-- Land experimentals the ACU builds DIRECTLY once it has the Tech 3 Engineering
+-- Suite. Unlike everything above they are MOBILE, and they do not stay with the
+-- player: lib/Experimentals.lua transfers each one into the builder's
+-- ARMY_WAVE_n the instant it completes, so it joins that lane's march like any
+-- other wave unit.
+--
+-- A THIRD separate table, for the same reason AcuStructures is a second one:
+-- these ids must never be reachable from AllUnitIds(), which feeds
+-- FactoryQueue.WaveCategory() and hence PurgeStrayUnits() — that sweep Destroy()s
+-- any unit of its category sitting in a player army, and an experimental
+-- legitimately sits there for the whole time the ACU is building it.
+--
+-- NO BLUEPRINT CATEGORY MERGE IS NEEDED HERE, unlike the T3 Point Defense above.
+-- All four already carry BUILTBYTIER3COMMANDER *and* their own faction category
+-- (verified in units.nx2), and every ACU's stock BuildableCategory includes
+-- "BUILTBYTIER3COMMANDER <FACTION>" (UEL0001_unit.bp:227-231). So the roster is
+-- faction-locked for free: a Cybran ACU's expression can only ever match the
+-- Monkeylord. Note the same blueprint line means the tier-3 gate is NOT free —
+-- that BuildableCategory entry is present from tick 0 with no enhancement
+-- prerequisite, so Experimentals.lua has to gate on the T3Engineering
+-- enhancement itself.
+--
+-- The faction order is the usual one; url0402 (not url0401 — that is the Cybran
+-- experimental air unit) is the Monkeylord.
+AcuExperimentals = {
+    { name = 'Fatboy',     faction = 1, id = 'uel0401' },
+    { name = 'Colossus',   faction = 2, id = 'ual0401' },
+    { name = 'Monkeylord', faction = 3, id = 'url0402' },
+    { name = 'Ythotha',    faction = 4, id = 'xsl0401' },
+}
+
 --------------------------------------------------------------------------
 -- Derived lookups, built once on first use.
 --------------------------------------------------------------------------
@@ -271,4 +302,35 @@ end
 function IsAcuStructure(id)
     BuildStructures()
     return structureSet[id] == true
+end
+
+--------------------------------------------------------------------------
+-- AcuExperimentals derived lookups. Separate again — see that table's header
+-- for why these ids must stay out of AllUnitIds()/AllStructureIds().
+--------------------------------------------------------------------------
+local experimentalIds   -- { every AcuExperimentals id }
+local experimentalSet   -- id -> true
+
+local function BuildExperimentals()
+    if experimentalIds then
+        return
+    end
+    experimentalIds, experimentalSet = {}, {}
+    for i, def in AcuExperimentals do
+        if def.id and not experimentalSet[def.id] then
+            table.insert(experimentalIds, def.id)
+            experimentalSet[def.id] = true
+        end
+    end
+end
+
+function AllExperimentalIds()
+    BuildExperimentals()
+    return experimentalIds
+end
+
+-- True if `id` is one of the four ACU-buildable land experimentals.
+function IsAcuExperimental(id)
+    BuildExperimentals()
+    return experimentalSet[id] == true
 end
