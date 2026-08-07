@@ -279,7 +279,20 @@ local OVERRIDES = {
         -- Per-round step: the mass-storage building lib/CoreStorage.lua spawns
         -- (hidden, invulnerable) on each Core at the start of every round holds
         -- this much, so the cap grows by this per round. Stock 500.
+        --
+        -- THE COST MATTERS TOO, because the ACU can build these itself: all four
+        -- carry BUILTBYTIER2COMMANDER (verified in units.nx2), and they sit in
+        -- the script's allowed set so CoreStorage's own spawns survive
+        -- AddRestriction — which hands them to the player as a side effect. So a
+        -- player past AdvancedEngineering can buy cap on demand, against a design
+        -- where storage and not income is what gates tier 3. Doubled from stock
+        -- 200m/1500e on Kamikaze's call (2026-08-08) rather than blocked outright:
+        -- buying capacity stays a legal play, it just has to be worth 400 mass
+        -- against the +100 cap it grants. Turn the price up further here if it
+        -- still reads as the obvious opening.
         ids = { 'ueb1106', 'uab1106', 'urb1106', 'xsb1106' },
+        BuildCostMass = 400,
+        BuildCostEnergy = 3000,
         StorageMass = 100,
     },
     {
@@ -293,7 +306,13 @@ local OVERRIDES = {
         -- like the mass one) each round too, so the energy cap is
         -- 3900 + 500 x (round - 1): 5900 at round 5, 8400 at round 10, which is
         -- what the tier-3 prices above are pitched against. Stock is 10000.
+        --
+        -- Cost doubled from stock 250m/1200e for the same reason as the mass
+        -- storage above — the ACU can build these too, and +500 energy cap on
+        -- demand is worth more here than the sticker price suggests.
         ids = { 'ueb1105', 'uab1105', 'urb1105', 'xsb1105' },
+        BuildCostMass = 500,
+        BuildCostEnergy = 2400,
         StorageEnergy = 500,
     },
 }
@@ -337,6 +356,82 @@ UnitBlueprint {
         [18] = 'AEON',
         [19] = 'CYBRAN',
         [20] = 'SERAPHIM',
+    },
+}
+
+--------------------------------------------------------------------------
+-- Take the Core's own blueprint out of the UEF ACU's build menu.
+--
+-- THE BUG (game 27565454, reported 2026-08-07): a UEF player finished the
+-- T3Engineering enhancement and could then build a second T3 power generator —
+-- the Core. Config.CoreBlueprint IS ueb1301, and LineWars-2p_script.lua adds
+-- categories.ueb1301 to the `allowed` set so the map's own AddRestriction does
+-- not destroy the Core the script spawns. That exemption is necessary, but it
+-- also stops being a restriction: stock ueb1301 carries BUILTBYTIER3COMMANDER
+-- and UEF, and every UEF ACU's Economy.BuildableCategory contains
+-- "BUILTBYTIER3COMMANDER UEF", so the moment the tier-3 gate lifts the Core
+-- appears in the menu. It pays a stock 2500 e/s against a Core deliberately
+-- throttled to CoreEnergyBase (500), so one build is five Cores' worth of
+-- income. It showed up alongside the ACU experimentals for one shared reason:
+-- T3Engineering unlocks both in the same menu at the same instant.
+--
+-- The fix is at the other end — a blueprint that no ACU can express is one the
+-- restriction system never has to catch, so the Core stays script-spawnable
+-- while being unbuildable by anyone. A merge cannot DELETE a field, so the two
+-- offending entries are overwritten in place with an inert marker rather than
+-- removed; a Categories list may hold a string that means nothing to the engine
+-- (this one now yields categories.LINEWARSCORE, unused but a handy handle).
+-- BUILTBYTIER3ENGINEER goes too: engineers are restricted today, so it costs
+-- nothing to stop depending on that staying true.
+--
+-- Same numeric-index caveat as the Ravager above, and worse here because these
+-- indices OVERWRITE rather than append: stock ueb1301 is a 15-entry list with
+-- BUILTBYTIER3COMMANDER at 1 and BUILTBYTIER3ENGINEER at 2 (checked in
+-- units.nx2, 2026-08-08). If a FAF patch reorders that list this silently
+-- deletes the wrong two categories — STRUCTURE or UEF going missing would be
+-- the loud version. Re-check before trusting it after a patch.
+UnitBlueprint {
+    Merge = true,
+    BlueprintId = 'ueb1301',
+    Categories = {
+        [1] = 'LINEWARSCORE',
+        [2] = 'LINEWARSCORE',
+    },
+}
+
+--------------------------------------------------------------------------
+-- Take reclaim off the Aeon Harbinger at load time.
+--
+-- Kamikaze saw one picking over mass wrecks instead of fighting. It is the only
+-- blueprint in the entire roster that can: of the 105 ids in UnitTypes, ual0303
+-- alone has RULEUCC_Reclaim = true and a BuildRate (5), checked against
+-- units.nx2 on 2026-08-08.
+--
+-- This is the SECOND of two mechanisms, and the runtime one is the primary:
+-- WaveSpawner.SuppressReclaim calls RemoveCommandCap on every unit entering a
+-- wave army, which is mod-proof where this merge is not (a map .bp loses to
+-- mods — see the header). This one is here because what was actually issuing
+-- the reclaim order was never identified, so a load-time block that never
+-- depends on our code reaching the unit is worth having as well. Belt and
+-- braces, the same pattern the experimentals tier gate uses.
+--
+-- BlueprintMerged (lua/system/Blueprints.lua:91) recurses into nested tables
+-- and copies `false` like any other value — only the '__nil' sentinel deletes —
+-- so this changes that single flag and leaves the rest of CommandCaps stock,
+-- exactly as the Enhancements merge below does for the ACU.
+--
+-- NOT DONE BY ZEROING Economy.BuildRate, which looks like the more direct fix
+-- and is a trap: it would leave the ORDER acceptable and merely make it take
+-- forever, so a Harbinger told to reclaim would stand over a wreck doing
+-- nothing for the rest of the game instead of being briefly distracted. Remove
+-- the ability, not the speed.
+UnitBlueprint {
+    Merge = true,
+    BlueprintId = 'ual0303',
+    General = {
+        CommandCaps = {
+            RULEUCC_Reclaim = false,
+        },
     },
 }
 

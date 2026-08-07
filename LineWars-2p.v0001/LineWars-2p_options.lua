@@ -135,6 +135,17 @@ options =
         },
     },
     {
+        default = 1,
+        label = "Allow T2 power generators",
+        help = "Lets every faction's ACU build a Tech 2 power generator (+500 energy/s) once it has the Advanced Engineering upgrade. Off means the Core and capture points are your only energy.",
+        key = 'opt_lw_t2_power',
+        pref = 'opt_lw_t2_power',
+        values = {
+            { text = "Allow", help = "T2 power generators buildable by every faction - energy becomes a build decision, and shields stop being UEF-only in practice", key = 1, },
+            { text = "Disallow", help = "No power generators at all - energy income is fixed by the Core, base income and capture points", key = 0, },
+        },
+    },
+    {
         default = 2,
         label = "SOS destroys",
         help = "Which mobile units an SOS detonates in the caller's lane. Structures are never touched.",

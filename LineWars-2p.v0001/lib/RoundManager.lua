@@ -62,9 +62,32 @@ local function RoundLoop()
         Announce('Wave ' .. LW.Round .. ' incoming!')
         for i, armyName in LW.ActivePlayers do
             if not LW.Dead[armyName] then
-                WaveSpawner.SpawnWaveForArmy(armyName)
+                -- THIS THREAD IS THE GAME. If it throws it is gone — there is no
+                -- restart, no more rounds, no more waves, and no error on screen;
+                -- FactoryQueue carries on charging players for waves that will
+                -- never arrive. That is exactly what happened in game 27565454:
+                -- one CreateUnitHPR refusal inside a wave spawn at round 26
+                -- unwound through here and the match froze for its last six
+                -- minutes. pcall is Lua's try/catch — it runs the call in
+                -- protected mode and hands back ok=false plus the error message
+                -- instead of propagating. Per army, so one player's failure costs
+                -- that player their wave and nobody else theirs.
+                --
+                -- Nothing under SpawnWaveForArmy may WaitSeconds: this Lua cannot
+                -- yield across a pcall boundary. It doesn't today, and the
+                -- comments in WaveSpawner say so.
+                local ok, err = pcall(WaveSpawner.SpawnWaveForArmy, armyName)
+                if not ok then
+                    WARN('LineWars: wave spawn for ' .. armyName .. ' failed: ' ..
+                        tostring(err))
+                end
             end
         end
+        -- Diagnostic for the cap theory above, printed after the spawn so it
+        -- shows the round's peak. See WaveSpawner.LogWaveArmyUnitCaps. Guarded
+        -- for the same reason as everything else in this loop, and doubly so
+        -- because a diagnostic that ends the game would be a poor trade.
+        pcall(WaveSpawner.LogWaveArmyUnitCaps)
         LW.Round = LW.Round + 1
     end
 end

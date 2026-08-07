@@ -182,6 +182,41 @@ AcuExperimentals = {
     { name = 'Ythotha',    faction = 4, id = 'xsl0401' },
 }
 
+-- Economy buildings the ACU may build directly, behind the "Allow T2 power
+-- generators" lobby option (Config.GetAllowT2Power). Added 2026-08-08 on
+-- Kamikaze's request: the T2 Shield is the map's only real answer to massed artillery, and
+-- at 500 e/s a Core plus BaseEnergyIncome it was UEF-or-nothing to run more than
+-- about three of them. A T2 power generator pays another 500 e/s, so this is the
+-- energy half of the economy becoming a build decision rather than a fixed
+-- allowance.
+--
+-- A FOURTH separate table, and separate for a different reason than the two
+-- above. AcuStructures/AcuExperimentals are separate so their ids stay out of
+-- AllUnitIds() and hence PurgeStrayUnits — which applies here too and is reason
+-- enough on its own. But this table is ALSO separate from AcuStructures
+-- specifically, because IsAcuStructure() is what grants the no-build-zone
+-- carve-out in AcuRules, and a power generator must not have it: the carve-out
+-- exists so you can hold a forward choke with a turret, and a 1200-mass building
+-- dropped in the lane corridor is exactly the wall the no-build zone is there to
+-- prevent. Being absent from that lookup, these fall through to the normal
+-- structure path — refunded pro-rata and destroyed inside a no-build zone,
+-- identical to a misplaced factory.
+--
+-- No blueprint category merge is needed (unlike the T3 Point Defense): all four
+-- carry BUILTBYTIER2COMMANDER plus their own faction category, verified in
+-- units.nx2, so each ACU reaches its own faction's building for free once it has
+-- AdvancedEngineering. The engine applies that tier gate itself, as it does for
+-- the T3 rows in AcuStructures.
+--
+-- Placed AFTER AcuExperimentals deliberately: tools/gen-units-md.py bounds its
+-- AcuStructures scan at the `AcuExperimentals` marker and matches experimentals
+-- by a different row shape, so a `byFaction` table here is picked up by its own
+-- parser and by neither of theirs. Moving it above either marker would silently
+-- fold these ids into that section of UNITS.md.
+AcuEconomy = {
+    { name = 'T2 Power Generator', tier = 2, byFaction = { 'ueb1201', 'uab1201', 'urb1201', 'xsb1201' } },
+}
+
 --------------------------------------------------------------------------
 -- Derived lookups, built once on first use.
 --------------------------------------------------------------------------
@@ -333,4 +368,37 @@ end
 function IsAcuExperimental(id)
     BuildExperimentals()
     return experimentalSet[id] == true
+end
+
+--------------------------------------------------------------------------
+-- AcuEconomy derived lookups. Separate again, and note IsAcuEconomy is NOT
+-- consulted by AcuRules' no-build carve-out — see that table's header.
+--------------------------------------------------------------------------
+local economyIds   -- { every AcuEconomy id }
+local economySet   -- id -> true
+
+local function BuildEconomy()
+    if economyIds then
+        return
+    end
+    economyIds, economySet = {}, {}
+    for i, role in AcuEconomy do
+        for j, id in role.byFaction do
+            if id and not economySet[id] then
+                table.insert(economyIds, id)
+                economySet[id] = true
+            end
+        end
+    end
+end
+
+function AllEconomyIds()
+    BuildEconomy()
+    return economyIds
+end
+
+-- True if `id` is one of the optional ACU-buildable economy buildings.
+function IsAcuEconomy(id)
+    BuildEconomy()
+    return economySet[id] == true
 end

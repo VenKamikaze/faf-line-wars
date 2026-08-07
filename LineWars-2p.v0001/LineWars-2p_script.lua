@@ -69,9 +69,25 @@ function OnStart(self)
     -- Alliances are dictated by start position (lane pairing), overriding
     -- lobby team settings: same side = allies, opposite side = enemies.
     -- The Core and the Core-storage buildings must be in the allowed set: the
-    -- restriction system destroys script-spawned units too. Players still can't
-    -- build the Core (T3, and all engineers are restricted). FactoryQueue's
+    -- restriction system destroys script-spawned units too. FactoryQueue's
     -- allowed set covers ACU + the land/air factories + the wave units.
+    --
+    -- BE CAREFUL WHAT YOU ADD HERE: an exemption granted so the script can spawn
+    -- something also puts it in reach of the ACU, which is not an engineer and is
+    -- not covered by "all engineers are restricted". That assumption was wrong
+    -- and cost a game: ueb1301 (the Core) is BUILTBYTIER3COMMANDER + UEF, so a
+    -- UEF player who finished T3Engineering could build a second one, paying a
+    -- stock 2500 e/s against the 500 the Core is throttled to. The block is now
+    -- in units/LineWars_units.bp, which strips the category rather than relying
+    -- on this set — see the comment there.
+    --
+    -- THE SAME HOLE IS STILL OPEN FOR CoreStorage's buildings, deliberately,
+    -- pending Kamikaze's call. ueb1106/ueb1105 (and the three faction pairs) carry
+    -- BUILTBYTIER2COMMANDER, verified in units.nx2 2026-08-08, so any ACU past
+    -- AdvancedEngineering can build them: 200 mass buys +100 mass cap and 250
+    -- buys +500 energy cap, repeatable, which is the per-round storage grant on
+    -- demand — and storage, not income, is what gates T3. Two ways out: strip
+    -- the category as ueb1301 now does, or reprice them and call it a feature.
     local allowed = FactoryQueue.AllowedCategories() + categories[Config.CoreBlueprint]
                     + CoreStorage.AllowedCategories() + Experimentals.AllowedCategories()
     for i, armyName in LW.ActivePlayers do

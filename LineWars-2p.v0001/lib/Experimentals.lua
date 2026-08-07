@@ -111,6 +111,13 @@ local function Handover(armyName, unit)
         return
     end
 
+    -- The transfer returns NEW units, so they carry the stock command caps
+    -- whatever the original had — the second of the two places a unit enters a
+    -- wave army, and so the second place reclaim has to be taken off it. No
+    -- experimental in the roster has the capability today; this is here so the
+    -- rule holds for the unit that arrives by this path rather than by a spawn.
+    WaveSpawner.SuppressReclaim(newUnits)
+
     -- March it now rather than leaving it to WaveSpawner's idle watchdog, which
     -- would take up to ten seconds to notice a new idle unit in the wave army.
     WaveSpawner.MarchUnits(armyName, lane, newUnits)

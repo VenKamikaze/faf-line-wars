@@ -101,6 +101,49 @@ model and name whoever builds it.
 | T3 Point Defense | 3 | Cybran | `xeb2306` | 1080* | 7560* | 6500 |
 | T3 Point Defense | 3 | Seraphim | `xeb2306` | 1080* | 7560* | 6500 |
 
+## ACU-built economy (lobby option)
+
+Behind the **Allow T2 power generators** lobby option, which defaults to
+Allow; set it to Disallow and these vanish from the ACU's build menu
+entirely. The engine's own tier gate applies, so the ACU needs the Advanced
+Engineering upgrade first.
+
+Unlike the defense structures above these get NO no-build-zone carve-out —
+one sited in the lane corridor is refunded pro-rata and destroyed, exactly
+like a misplaced factory, because a building this size is precisely the wall
+the no-build zone exists to prevent.
+
+A T2 power generator pays 500 energy/s — the same as a Core — so it is the
+one way to change your energy income by building something.
+
+| Structure | Tier | Faction | Blueprint | Mass | Energy | Health |
+| --- | ---: | --- | --- | ---: | ---: | ---: |
+| T2 Power Generator | 2 | UEF | `ueb1201` | 1200 | 12000 | 2500 |
+| T2 Power Generator | 2 | Aeon | `uab1201` | 1200 | 12000 | 2300 |
+| T2 Power Generator | 2 | Cybran | `urb1201` | 1200 | 12000 | 2200 |
+| T2 Power Generator | 2 | Seraphim | `xsb1201` | 1200 | 12000 | 2400 |
+
+## Storage buildings
+
+`lib/CoreStorage.lua` spawns one of each on every Core at the start of each
+round, hidden and invulnerable — that is how the mass and energy caps grow.
+**The ACU can also build them**, a side effect of the restriction exemption
+those script spawns need, so the price below is a real decision: cap bought
+ahead of the round schedule, against a design where storage and not income
+gates tier 3. Both costs are doubled from stock for that reason; the
+Capacity column is what one building adds.
+
+| Building | Faction | Blueprint | Mass | Energy | Capacity |
+| --- | --- | --- | ---: | ---: | ---: |
+| Mass Storage | UEF | `ueb1106` | 400* | 3000* | 100* |
+| Mass Storage | Aeon | `uab1106` | 400* | 3000* | 100* |
+| Mass Storage | Cybran | `urb1106` | 400* | 3000* | 100* |
+| Mass Storage | Seraphim | `xsb1106` | 400* | 3000* | 100* |
+| Energy Storage | UEF | `ueb1105` | 500* | 2400* | 500* |
+| Energy Storage | Aeon | `uab1105` | 500* | 2400* | 500* |
+| Energy Storage | Cybran | `urb1105` | 500* | 2400* | 500* |
+| Energy Storage | Seraphim | `xsb1105` | 500* | 2400* | 500* |
+
 ## ACU-built experimentals
 
 One per faction, built directly by the ACU — but only once it has the Tech 3

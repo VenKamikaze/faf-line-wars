@@ -194,6 +194,14 @@ the start of every round after the first, so your ceilings are
 `units/LineWars_units.bp`; note those merges lose to unit-overhaul mods, so play
 Line Wars without BlackOps/Total Mayhem or the caps silently revert.
 
+Those same two buildings are **also buildable by the ACU**, a side effect of the
+restriction exemption that lets the script spawn them (see *Engine findings*).
+That is left in place and priced for instead: doubled from stock to **400m/3000e
+for +100 mass cap** and **500m/2400e for +500 energy cap** (2026-08-08), so
+buying capacity ahead of the round schedule is a real purchase rather than
+small change. If it still reads as the automatic opening, raise those two
+numbers — they are the only lever.
+
 The energy step was added with tier 3 (2026-07-26). Before it, energy storage was
 a flat 3900 all game — the ACU's alone — and because `FactoryQueue` charges a
 queued unit's full energy price **atomically**, nothing dearer than 3900e could
@@ -358,6 +366,25 @@ Candidates are only lanes held by a living player on your side, so:
 Each factory is an independent queue, so you can run a tank line at home and a
 bomber line in a teammate's lane at the same time.
 
+**Wave units cannot reclaim.** Every unit entering a wave army — spawned, or
+handed over on an experimental completing — has `RULEUCC_Reclaim` taken off it
+by `WaveSpawner.SuppressReclaim`. Exactly one blueprint in the whole roster can
+reclaim: the Aeon Harbinger `ual0303`, the only one of the 105 ids in
+`UnitTypes` with `RULEUCC_Reclaim = true` and a `BuildRate` (5) — the other
+three factions' Siege Assault Bots have neither. It was seen picking over mass
+wrecks instead of fighting. The sweep is blanket rather than keyed on that id so
+it keeps holding if the roster gains something with a build arm.
+
+`units/LineWars_units.bp` also merges `General.CommandCaps.RULEUCC_Reclaim =
+false` onto `ual0303` — belt and braces, because **what was prompting an
+unattended wave unit to reclaim was never established**. The runtime call is the
+primary (a map `.bp` loses to mods); the merge is the one that holds even if our
+code never reaches the unit. Both remove the *ability*, so if reclaiming ever
+recurs the answer is upstream, in whatever issues the order. Deliberately **not**
+done by zeroing `Economy.BuildRate`: that leaves the order acceptable and merely
+makes it take forever, so the unit would stand over a wreck for the rest of the
+game rather than being briefly distracted. Assist and repair are untouched.
+
 Wave units are created into the per-player `ARMY_WAVE_n` army, assigned to a
 platoon, and given `AggressiveMoveToLocation` through the waypoints to the enemy
 Core. A 10s watchdog re-issues orders to any idle wave unit, since platoons can
@@ -405,6 +432,21 @@ practical choice rather than a round-long trek. A 1s tick then enforces:
   construction economy (cost drains gradually over `BuildTime`, gated normally)
   rather than `FactoryQueue`'s charge/refund machinery, since the ACU builds
   them directly instead of queuing them.
+
+**T2 power generators are a lobby option** (`opt_lw_t2_power`, default Allow),
+and the only economy building the ACU may build. `UnitTypes.AcuEconomy` holds
+them; `FactoryQueue.AllowedCategories` simply leaves them out of the allowed set
+when the option is off, so the existing `AddRestriction` hides them — no
+AirGate-style unlock, because the answer is fixed for the whole game. They pay
+**500 e/s each, the same as a Core**, which is the point: at a 500 e/s Core plus
+100 base, running more than about three T2 Shields was impossible unless you
+were UEF and could reach a T3 generator, and that reach was itself the bug fixed
+above. All four factions' generators carry `BUILTBYTIER2COMMANDER` at stock, so
+this needs no blueprint merge — only the restriction set. They get **no**
+no-build-zone carve-out (see below): a 1200-mass building is exactly the wall
+the corridor exists to prevent, so one sited there is refunded and destroyed
+like a misplaced factory. Stock cost, stock 2200–2500 health, and no storage, so
+they do not quietly move the budget cap.
 
 **ACU tech upgrades** are the stock enhancements and are optional (nothing in
 the map gates on them; they buy build rate, health and regen). The tech-3 one,
@@ -597,6 +639,7 @@ not a value key. Every option here lists its default first and uses
 | Income growth interval | `opt_lw_income_growth_rounds` | **Every 4 rounds**, Never, every 1/2/3/5/6/7/8/9/10 |
 | Income growth step | `opt_lw_income_growth_pct` | **50%**, 25%, 75%, 100%, 150%, 200% |
 | Capture point income | `opt_lw_capture_income` | **Average**, Very low, Low, High, Very high |
+| Allow T2 power generators | `opt_lw_t2_power` | **Allow**, Disallow |
 | SOS uses per player | `opt_lw_sos_charges` | **1**, None, 2, 3 |
 | SOS destroys | `opt_lw_sos_targets` | Enemy units only, **Every unit in the lane** |
 
@@ -736,8 +779,42 @@ changing anything structural.
 - **`AddRestriction` destroys script-spawned units too.** The Core never
   appeared because the map's own `AddRestriction(ALLUNITS - allowed)` killed it
   on completion (*"Unit.OnStopBeingBuilt() cannot create restricted unit"*).
-  The fix is to include `Config.CoreBlueprint` in the allowed set; players still
-  cannot build it, since it is T3 and all engineers are restricted.
+  The fix is to include `Config.CoreBlueprint` in the allowed set — but note
+  **an exemption granted so the script can spawn something also hands it to the
+  players**, and the reasoning that "players still cannot build the Core, since
+  it is T3 and all engineers are restricted" was simply **wrong**. The ACU is not
+  an engineer: stock `ueb1301` carries `BUILTBYTIER3COMMANDER` and `UEF`, so the
+  instant a UEF player finished `T3Engineering` the Core appeared in their build
+  menu, at a stock 2500 e/s against a Core throttled to 500 (observed in game
+  27565454, 2026-08-07 — alongside the experimentals, because that one
+  enhancement unlocks both at once). The fix is at the blueprint end, where a
+  restriction exemption cannot undo it: `units/LineWars_units.bp` overwrites
+  those two `Categories` entries with an inert marker, so no ACU's
+  `BuildableCategory` can express it while the script spawns it as before.
+  Anything else added to `allowed` wants the same audit. `CoreStorage`'s
+  `ueb1106`/`ueb1105` and their faction pairs carry `BUILTBYTIER2COMMANDER`
+  (verified in `units.nx2`, 2026-08-08), so any ACU past `AdvancedEngineering`
+  can build storage — the per-round storage grant on demand, against a design
+  where storage and not income is what gates T3. That one is **deliberately left
+  buildable and repriced instead** (2026-08-08): both are doubled from stock, to
+  400m/3000e for +100 mass cap and 500m/2400e for +500 energy cap. Buying
+  capacity is a legal play; it just has to be worth the mass.
+- **`CreateUnitHPR` throws on failure — it does not return nil — and the army
+  unit cap is what makes it fail.** The lobby's unit cap applies per army,
+  `ARMY_WAVE_n` extra armies included, and a persistent queue re-spawning the
+  whole standing wave every round walks straight into it (a lane with no
+  opposing player is worst: nothing there ever dies). In game 27565454 one
+  refusal at round 26 unwound through `SpawnWave` → `SpawnWaveForArmy` →
+  `RoundManager`'s loop and **killed the round-loop thread**, which is the whole
+  game: no further rounds or waves, no error on screen, and `FactoryQueue`
+  charging on for waves that never came. Every call site is now `pcall`ed per
+  unit, per lane and per army, and each round logs every wave army's
+  `UnitCap_Current`/`UnitCap_MaxCap` so the next game confirms the cap directly
+  — FAF's own JsonStats blob reports human armies only, so a wave army's
+  population appears nowhere else. Two rules fall out: **a long-lived
+  `ForkThread` that the game depends on must not be able to throw**, and
+  `pcall`ed code must never `WaitSeconds`, since this Lua cannot yield across a
+  `pcall` boundary.
 - **A map can override blueprints without shipping a mod.** `LoadBlueprints()`
   in `lua/system/Blueprints.lua` runs `DiskFindFiles(preGameData.CurrentMapDir,
   '*.bp')` after the game files and before mods, on **both** the sim and UI

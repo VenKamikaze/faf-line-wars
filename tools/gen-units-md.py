@@ -26,6 +26,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP = os.path.join(REPO, "LineWars-2p.v0001")
 UNIT_TYPES = os.path.join(MAP, "lib", "UnitTypes.lua")
 OVERRIDES_BP = os.path.join(MAP, "units", "LineWars_units.bp")
+CORE_STORAGE = os.path.join(MAP, "lib", "CoreStorage.lua")
 DEFAULT_GAMEDATA = os.path.expanduser("~/.faforever/gamedata")
 
 
@@ -132,6 +133,56 @@ def parse_acu_structures(path):
     ]
 
 
+def parse_core_storage(path):
+    """-> [ (label, storage_field, [ids]) ] from CoreStorage.lua's two lists.
+
+    These buildings are NOT in UnitTypes: lib/CoreStorage.lua spawns them on each
+    Core to raise the round's cap, so they are script furniture rather than a
+    build option. They are listed anyway because the ACU can build them too (they
+    carry BUILTBYTIER2COMMANDER and sit in the script's allowed set so the
+    script's own spawns survive AddRestriction), which makes their price a real
+    balance number — and UNITS.md is where prices live. Read from CoreStorage.lua
+    rather than repeated here so there is still one source of truth for the ids.
+    """
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    out = []
+    for label, var, field in (
+        ("Mass Storage", "STORAGE_BY_FACTION", "StorageMass"),
+        ("Energy Storage", "ENERGY_BY_FACTION", "StorageEnergy"),
+    ):
+        m = re.search(r"%s\s*=\s*\{([^}]*)\}" % var, text)
+        if m:
+            out.append((label, field, parse_id_list(m.group(1))))
+    return out
+
+
+def parse_acu_economy(path):
+    """-> [ {name, tier, units: [id]} ] from the AcuEconomy table.
+
+    Same row shape as AcuStructures, and needs no end marker only because
+    AcuEconomy is the LAST table in the file — see the note in UnitTypes.lua
+    about why it has to sit after AcuExperimentals. Add a table below it and
+    this scan swallows it, exactly as the two above would have.
+
+    Unlike parse_acu_structures this does not exit when the table is missing:
+    these buildings are behind a lobby option and deleting the table is a
+    legitimate way to drop the feature.
+    """
+    text = strip_lua_comments(open(path, encoding="utf-8").read())
+    m = re.search(r"AcuEconomy\s*=\s*\{", text)
+    if not m:
+        return []
+    return [
+        {"name": rn, "tier": int(rt or 1), "units": parse_id_list(rb)}
+        for rn, rt, rb in re.findall(
+            r"name\s*=\s*'([^']+)'\s*,"
+            r"(?:\s*tier\s*=\s*(\d+)\s*,)?"
+            r"\s*byFaction\s*=\s*\{([^}]*)\}",
+            text[m.end():],
+        )
+    ]
+
+
 def parse_acu_experimentals(path):
     """-> [ {name, faction (1-based), id} ] from the AcuExperimentals table.
 
@@ -155,14 +206,28 @@ def parse_acu_experimentals(path):
 def parse_overrides(path):
     """-> { blueprint id: {field: value} } from the OVERRIDES table in the .bp"""
     text = strip_lua_comments(open(path, encoding="utf-8").read())
+
+    # Cut to the OVERRIDES table before scanning. A group's body is "everything
+    # up to the next `ids = {`", so the LAST group would otherwise run to end of
+    # file and absorb every standalone UnitBlueprint merge below the table — the
+    # ACU's `T3Engineering = { BuildCostMass = 1500 }` was landing on the energy
+    # storage building, which only became visible when that building was first
+    # rendered (2026-08-08). Bounded at the loop that consumes the table.
+    start = re.search(r"OVERRIDES\s*=\s*\{", text)
+    end = re.search(r"^for\s+\w+\s*,\s*\w+\s+in\s+OVERRIDES\b", text, re.M)
+    if start:
+        text = text[start.end():end.start() if end else len(text)]
+
     out = {}
     groups = re.finditer(
         r"ids\s*=\s*\{([^}]*)\}(.*?)(?=ids\s*=\s*\{|\Z)", text, re.S
     )
     for g in groups:
+        # Storage\w+, not StorageMass: StorageEnergy has been an override since
+        # 2026-07-26 and was silently never read.
         fields = {
             k: int(v)
-            for k, v in re.findall(r"(BuildCost\w+|StorageMass)\s*=\s*(-?\d+)", g.group(2))
+            for k, v in re.findall(r"(BuildCost\w+|Storage\w+)\s*=\s*(-?\d+)", g.group(2))
         }
         for uid in parse_id_list(g.group(1)):
             out.setdefault(uid.lower(), {}).update(fields)
@@ -195,6 +260,12 @@ def load_stock(gamedata):
             stock[uid] = {
                 "mass": field(raw, "BuildCostMass"),
                 "energy": field(raw, "BuildCostEnergy"),
+                # Only the CoreStorage buildings use these, but they are read for
+                # every unit so the storage table's Capacity column has a real
+                # stock fallback rather than silently reporting a build cost if an
+                # override is ever removed.
+                "storagemass": field(raw, "StorageMass"),
+                "storageenergy": field(raw, "StorageEnergy"),
                 "health": field(raw, "MaxHealth"),
                 # Aircraft carry a near-zero ground MaxSpeed alongside the real
                 # MaxAirspeed, so air wins wherever both are present.
@@ -276,6 +347,8 @@ def main():
     kinds = parse_unit_types(UNIT_TYPES)
     structures = parse_acu_structures(UNIT_TYPES)
     experimentals = parse_acu_experimentals(UNIT_TYPES)
+    economy = parse_acu_economy(UNIT_TYPES)
+    storage = parse_core_storage(CORE_STORAGE)
     overrides = parse_overrides(OVERRIDES_BP)
     stock = load_stock(os.path.expanduser(args.gamedata))
 
@@ -283,6 +356,7 @@ def main():
                [f for k in kinds for f in k["factories"]] + \
                [f for k in kinds for ids in k["tiers"].values() for f in ids] + \
                [u for s in structures for u in s["units"]] + \
+               [u for s in economy for u in s["units"]] + \
                [e["id"] for e in experimentals]:
         if uid is not None and uid not in stock:
             sys.exit("gen-units-md: %s is not a real blueprint id" % uid)
@@ -371,6 +445,61 @@ def main():
             ))
     L.append("")
 
+    if economy:
+        L.append("## ACU-built economy (lobby option)")
+        L.append("")
+        L.append("Behind the **Allow T2 power generators** lobby option, which defaults to")
+        L.append("Allow; set it to Disallow and these vanish from the ACU's build menu")
+        L.append("entirely. The engine's own tier gate applies, so the ACU needs the Advanced")
+        L.append("Engineering upgrade first.")
+        L.append("")
+        L.append("Unlike the defense structures above these get NO no-build-zone carve-out —")
+        L.append("one sited in the lane corridor is refunded pro-rata and destroyed, exactly")
+        L.append("like a misplaced factory, because a building this size is precisely the wall")
+        L.append("the no-build zone exists to prevent.")
+        L.append("")
+        L.append("A T2 power generator pays 500 energy/s — the same as a Core — so it is the")
+        L.append("one way to change your energy income by building something.")
+        L.append("")
+        L.append("| Structure | Tier | Faction | Blueprint | Mass | Energy | Health |")
+        L.append("| --- | ---: | --- | --- | ---: | ---: | ---: |")
+        for s in sorted(economy, key=lambda r: r["tier"]):
+            for i, uid in enumerate(s["units"]):
+                if uid is None:
+                    continue
+                L.append("| %s | %s | %s | `%s` | %s | %s | %s |" % (
+                    s["name"], s["tier"], factions[i], uid,
+                    cost(uid, "mass", "BuildCostMass", stock, overrides),
+                    cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                    num(stock[uid].get("health")),
+                ))
+        L.append("")
+
+    if storage:
+        L.append("## Storage buildings")
+        L.append("")
+        L.append("`lib/CoreStorage.lua` spawns one of each on every Core at the start of each")
+        L.append("round, hidden and invulnerable — that is how the mass and energy caps grow.")
+        L.append("**The ACU can also build them**, a side effect of the restriction exemption")
+        L.append("those script spawns need, so the price below is a real decision: cap bought")
+        L.append("ahead of the round schedule, against a design where storage and not income")
+        L.append("gates tier 3. Both costs are doubled from stock for that reason; the")
+        L.append("Capacity column is what one building adds.")
+        L.append("")
+        L.append("| Building | Faction | Blueprint | Mass | Energy | Capacity |")
+        L.append("| --- | --- | --- | ---: | ---: | ---: |")
+        for label, field, ids in storage:
+            for i, uid in enumerate(ids):
+                if uid is None:
+                    continue
+                L.append("| %s | %s | `%s` | %s | %s | %s |" % (
+                    label, factions[i], uid,
+                    cost(uid, "mass", "BuildCostMass", stock, overrides),
+                    cost(uid, "energy", "BuildCostEnergy", stock, overrides),
+                    cost(uid, field.lower(), field, stock, overrides),
+                ))
+        L.append("")
+
     L.append("## ACU-built experimentals")
     L.append("")
     L.append("One per faction, built directly by the ACU — but only once it has the Tech 3")
@@ -443,11 +572,12 @@ def main():
     L.append("")
 
     open(args.output, "w", encoding="utf-8").write("\n".join(L))
-    print("wrote %s (%d units, %d factories, %d ACU structures)" % (
+    print("wrote %s (%d units, %d factories, %d ACU structures, %d ACU economy)" % (
         args.output,
         sum(1 for k in kinds for r in k["roles"] for u in r["units"] if u),
         sum(len(k["factories"]) for k in kinds),
         sum(1 for s in structures for u in s["units"] if u),
+        sum(1 for s in economy for u in s["units"] if u),
     ))
 
 

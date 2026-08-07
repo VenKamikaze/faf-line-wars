@@ -98,6 +98,15 @@ function AllowedCategories()
     add(UnitTypes.AllFactoryIds(), 'factory')
     add(UnitTypes.AllUnitIds(), 'wave unit')
     add(UnitTypes.AllStructureIds(), 'ACU structure')
+    -- The T2 power generator is a lobby option, and this is the whole mechanism
+    -- behind it: left out of the allowed set, the script's own
+    -- `AddRestriction(ALLUNITS - allowed)` hides it from the ACU's build menu.
+    -- No AirGate-style RemoveRestriction is wanted here — the choice is fixed for
+    -- the game rather than unlocking at a round, so answering it once while the
+    -- restriction is being built is the whole implementation.
+    if Config.GetAllowT2Power() then
+        add(UnitTypes.AllEconomyIds(), 'ACU economy structure')
+    end
     return allowed
 end
 

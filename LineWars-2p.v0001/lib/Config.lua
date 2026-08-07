@@ -335,6 +335,19 @@ function GetSosCharges()
     return ScenarioInfo.Options.opt_lw_sos_charges or 1
 end
 
+-- May the ACU build the T2 power generator (UnitTypes.AcuEconomy)? The lobby
+-- default is Allow, so the fallback here is `true` — see the note above about
+-- keeping each fallback equal to the lobby default. Compared against 0 rather
+-- than trusting truthiness: 0 is TRUE in Lua, so `Options.x or true` would
+-- report "allow" for a lobby that explicitly picked Disallow.
+function GetAllowT2Power()
+    local key = ScenarioInfo.Options.opt_lw_t2_power
+    if key == nil then
+        return true
+    end
+    return key ~= 0
+end
+
 -- Multiplier on CapturePointMass/CapturePointEnergy — see CaptureIncomeScales.
 function GetCaptureIncomeScale()
     local key = ScenarioInfo.Options.opt_lw_capture_income or CaptureIncomeDefault
