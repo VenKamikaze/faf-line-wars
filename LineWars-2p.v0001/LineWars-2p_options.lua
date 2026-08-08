@@ -14,17 +14,6 @@ options =
 {
     {
         default = 1,
-        label = "Income model",
-        help = "How players earn the mass used to build spawner structures",
-        key = 'opt_lw_income_model',
-        pref = 'opt_lw_income_model',
-        values = {
-            { text = "Spawner income", help = "Base income, plus each spawner you build permanently increases your mass income", key = 1, },
-            { text = "Flat, scales per round", help = "Everyone gets the same income, which grows every round", key = 2, },
-        },
-    },
-    {
-        default = 1,
         label = "Round length",
         help = "Length of the build phase before each wave launches",
         key = 'opt_lw_round_time',

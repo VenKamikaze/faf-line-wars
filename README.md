@@ -43,7 +43,7 @@ enable. Keeping it that way constrains some of the design; see
 ```
 LineWars-2p.v0001/            the map folder FAF loads
   LineWars-2p_scenario.lua    armies, teams, ExtraArmies, file paths
-  LineWars-2p_options.lua     lobby options: income model, round length, Core HP
+  LineWars-2p_options.lua     lobby options: round length, Core HP, income growth
   LineWars-2p_script.lua      entry point: OnPopulate/OnStart, alliances, wiring
   LineWars-2p.scmap           map file created by FAFMapEditor, 512x256 (10x5 km)
   LineWars-2p_save.lua        armies + markers, written by FAFMapEditor
@@ -55,7 +55,7 @@ LineWars-2p.v0001/            the map folder FAF loads
     FactoryQueue.lua          per-factory queues: charge, refund, lane binding
     RoundManager.lua          round timer loop + announcements
     WaveSpawner.lua           wave spawning, platoon march orders, idle watchdog
-    Economy.lua               income models (spawner income / flat scaling)
+    Economy.lua               flat script-granted income + the growth multiplier
     CapturePoints.lua         LW_Cap zones: land units capture, side earns income
     ChatCommands.lua          reads chat sim-side and dispatches /commands
     Sos.lua                   /sos: one lane-wipe per player per game
@@ -138,13 +138,15 @@ and increment the round. Round length is a lobby option, default 60s.
 No mass extractors and no reclaim — **all income is script-granted** by
 `Economy.lua` on a 1s tick, so income is exactly what the design says it is.
 
-| | Model 1 — spawner income (default) | Model 2 — flat, scales per round |
-| --- | --- | --- |
-| Mass/s | `BaseMassIncome` + sum of each completed spawner's `income` | `BaseMassIncome × (1 + 0.25 × (round − 1))` |
-| Effect | Nexus-Wars style: spawners are both army *and* investment | Everyone earns the same; spawners are army only |
+Every player earns the same rate: `BaseMassIncome` (2/s) and `BaseEnergyIncome`
+(100/s), each multiplied by `Config.IncomeGrowthMultiplier(round)`. Starting
+resources are 150 mass / 500 energy.
 
-Both models grant a flat `BaseEnergyIncome` (100/s). Starting resources are 150
-mass / 500 energy.
+There used to be an **Income model** lobby option (`opt_lw_income_model`) picking
+between this and a `BaseMassIncome × (1 + 0.25 × (round − 1))` mass ramp. It was
+removed in favour of the growth options below, which reproduce that curve at
+interval 1 / step 25%; its other model added each completed spawner structure's
+`income`, a term that had been dead since the factory queue replaced spawners.
 
 **Income growth is a lobby option, applied to mass and energy alike.** Two paired
 options drive it: **Income growth interval** (Never / every 1–10 rounds, default
@@ -153,9 +155,8 @@ every 4) and **Income growth step** (25–200% of base, default 50%). A step lan
 12, 16. Steps are **additive on the base, not compounding**: at the defaults you
 earn 100% of base for rounds 1–3, 150% from round 4, 200% from round 8, which is
 a straight line rather than a curve that runs away by round 20.
-`Config.IncomeGrowthMultiplier`
-is the single source; `Economy.lua` folds it into the same bracket as income
-model 2's own per-round growth so the two curves add instead of multiplying.
+`Config.IncomeGrowthMultiplier` is the single source, and since the Income model
+option was removed it is the map's only income-growth knob.
 
 **The Core pays a flat energy income.** The Core is a UEF T3 power generator
 (`ueb1301`), which at stock produces **2500 e/s** from the moment it is spawned —
@@ -180,10 +181,8 @@ energy/mass-production *buff* is applied or removed, and the map never buffs a
 Core. Total round-1 energy income is therefore ~620/s (Core 500 +
 `BaseEnergyIncome` 100 + the ACU's stock 20), before capture points.
 
-Two caveats now that spawner structures are gone: **model 1 is currently
-identical to a flat `BaseMassIncome`** (there are no spawners left to add income),
-and the ACU gifts its own `StorageMass` as mass at warp-in, so you actually start
-with ~216 mass rather than 150. Replacing this whole section with the static
+One caveat: the ACU gifts its own `StorageMass` as mass at warp-in, so you
+actually start with ~216 mass rather than 150. Replacing this whole section with the static
 economy (flat ACU income, kill bounties, lane capture points) is the next design
 task — see [FACTORY-QUEUE-DESIGN.md](FACTORY-QUEUE-DESIGN.md) open question 2.
 
@@ -664,7 +663,6 @@ not a value key. Every option here lists its default first and uses
 
 | Option | Key | Values (**default** in bold) |
 | --- | --- | --- |
-| Income model | `opt_lw_income_model` | **Spawner income**, Flat scaling |
 | Round length | `opt_lw_round_time` | **60s**, 45s, 90s, 120s |
 | Core toughness | `opt_lw_core_health` | **Normal**, x2, x4 |
 | Allow air units from round | `opt_lw_air_from_round` | **3**, Immediate, 2, 4, 5, 10, Never |
@@ -790,9 +788,6 @@ there.
   stalls rather than blocks) behaving differently from `FactoryQueue`'s atomic
   per-unit charge — unconfirmed whether it reads as "a real strategic
   decision" in play, rather than unreachable-early or trivially cheap-late.
-
-Also worth noting: starting mass (150) buys two Assault Bot Spawners and
-nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
 
 ## Engine findings
 

@@ -1,3 +1,8 @@
+-- DEAD CODE, kept as the record of the abandoned spawner-structure design.
+-- Nothing imports this file: the factory queue replaced spawners, the blueprint
+-- file that would create these units is `.bp.disabled`, and the last consumer
+-- (Economy.lua's income model 1) went away with the "Income model" lobby option.
+--
 -- Spawner definitions: which structures players can build, and what each one
 -- adds to the wave every round. This is the balance heart of the map — add a
 -- DefSpawner block per unit type and everything else (build restrictions,
@@ -37,7 +42,7 @@ local CHASSIS = {
 --   blurb      short note on the unit's role, appended to the tooltip
 --   cost       mass cost to build (energy and build time derive from it)
 --   health     structure hit points
---   income     mass/second added to owner's income (income model 1 only)
+--   income     mass/second added to owner's income (no longer read by anything)
 --   icon       strategic icon, drawn on the build button and on the battlefield.
 --              Names come from /textures/ui/common/game/strategicicons — use the
 --              icon of the unit produced, since the button art cannot change.

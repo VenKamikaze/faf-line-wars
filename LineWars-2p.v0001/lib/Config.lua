@@ -155,15 +155,16 @@ StartingEnergy = 500
 -- merge — the only kind that reaches the engine's storage; a runtime __blueprints
 -- edit does not). ACU base storage 650->216, per-round Core storage unit = 100.
 -- NB those merges lose to unit-overhaul mods (see the .bp header).
-BaseMassIncome = 2.0            -- mass/second, both income models
-BaseEnergyIncome = 100          -- energy/second, both models (energy is not
-                                -- meant to be a constraint in v1)
-FlatIncomeGrowthPerRound = 0.25 -- income model 2: +25% of base per round
+BaseMassIncome = 2.0            -- mass/second
+BaseEnergyIncome = 100          -- energy/second (energy is not meant to be a
+                                -- constraint in v1)
 EconomyTickSeconds = 1
 
--- Periodic income growth, on top of whichever income model is chosen and applied
--- to mass AND energy alike (lobby: "Income growth interval" + "Income growth
--- step"). Growth is a share of the BASE income and steps are ADDITIVE, not
+-- Periodic income growth, applied to mass AND energy alike (lobby: "Income
+-- growth interval" + "Income growth step"). This is now the map's ONLY income
+-- growth knob — the old "Income model" option's per-round mass ramp was removed
+-- because these two reproduce it. Growth is a share of the BASE income and
+-- steps are ADDITIVE, not
 -- compounding: at the 50% default you earn 100% / 150% / 200% / 250% ... of base,
 -- so it never runs away the way a compounding curve does.
 --
@@ -330,10 +331,6 @@ DebugMode = true                -- extra LOG() output while developing
 --------------------------------------------------------------------------
 function GetRoundSeconds()
     return ScenarioInfo.Options.opt_lw_round_time or 60
-end
-
-function GetIncomeModel()
-    return ScenarioInfo.Options.opt_lw_income_model or 1
 end
 
 -- How many rounds between income growth steps; IncomeGrowthNever = flat all game.
