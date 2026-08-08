@@ -63,7 +63,6 @@ LineWars-2p.v0001/            the map folder FAF loads
     CoreStorage.lua           per-round mass + energy storage growth on each Core
     WinCondition.lua          Cores, elimination, side victory
     AcuRules.lua              ACU buffs, no-build zones (with a defense-structure carve-out), midline rule
-    SpawnerTypes.lua          dead: the abandoned spawner-structure design
 UNITS.md                      generated balance reference (every buildable unit)
 tools/gen-units-md.py         regenerates UNITS.md from UnitTypes.lua + gamedata
 FACTORY-QUEUE-DESIGN.md       the factory-queue design, with engine citations

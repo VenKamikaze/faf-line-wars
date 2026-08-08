@@ -1,8 +1,11 @@
 # Alternative design: factory build queue as the wave list
 
-**Status: proposed, not implemented.** Investigated 2026-07-20. Every engine
-claim below was checked against the extracted `lua.nx2` / `units.nx2` sources
-and is cited; the open questions at the end are genuinely undecided.
+**Status: adopted and implemented** (`lib/FactoryQueue.lua`). Investigated
+2026-07-20. Every engine claim below was checked against the extracted
+`lua.nx2` / `units.nx2` sources and is cited; the open questions at the end are
+genuinely undecided. The "Implementation sketch" below is the original plan and
+names files that no longer exist — `lib/SpawnerTypes.lua` was deleted on
+2026-08-08; read it as history, not as the current layout.
 
 ## The idea
 
@@ -348,5 +351,7 @@ build-menu descriptions and economy overrides were silently failing. Cause:
 used forward slashes, and `doscript` resolves through the **VFS** (`/maps/<name>/`)
 rather than the OS filesystem. The file threw on its `doscript` line every run
 and the loader's `safecall` swallowed it. Now fixed by taking only the map folder
-name and rebuilding a VFS path. If this design is adopted the file may go away
-entirely, but the lesson applies to any map-side `.bp`.
+name and rebuilding a VFS path. The file itself is **gone** — this design was
+adopted, and `units/LineWars_spawners_unit.bp` plus `lib/SpawnerTypes.lua` were
+deleted on 2026-08-08 (see git history) — but the lesson applies to any
+map-side `.bp`.

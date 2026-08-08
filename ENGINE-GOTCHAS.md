@@ -92,8 +92,10 @@ rather than replacing it, so only differences need stating.
   title-only tooltip), `General.UnitName` (unit-info panel name),
   `StrategicIconName`, `Economy.*`, `Physics.*`.
 - A `.bp` may call `UnitBlueprint{}` any number of times and may use
-  `doscript(path, env)`, so `LineWars_spawners_unit.bp` generates all 12 merges
-  from `SpawnerTypes.lua` rather than duplicating them.
+  `doscript(path, env)`. The map's spawner `.bp` used that to generate all 12
+  merges from one shared Lua table rather than duplicating them; both files were
+  deleted with the abandoned spawner design, so see git history
+  (`units/LineWars_spawners_unit.bp`) for the worked example.
 - It runs inside the loader's `safecall`, so a failure degrades to stock rather
   than crashing. Grep the log for `Blueprints Loading: Blueprints from current
   map`.
