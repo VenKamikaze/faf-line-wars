@@ -13,7 +13,7 @@ teammate's lane reinforces *that* lane, so a team can gang up on one duel.
 
 It is a **map, not a mod** — players just pick it in the lobby, with nothing to
 enable. Keeping it that way constrains some of the design; see
-[Engine findings](#engine-findings).
+[`ENGINE-GOTCHAS.md`](ENGINE-GOTCHAS.md).
 
 ## Status
 
@@ -195,7 +195,8 @@ the start of every round after the first, so your ceilings are
 Line Wars without BlackOps/Total Mayhem or the caps silently revert.
 
 Those same two buildings are **also buildable by the ACU**, a side effect of the
-restriction exemption that lets the script spawn them (see *Engine findings*).
+restriction exemption that lets the script spawn them (see
+[`ENGINE-GOTCHAS.md`](ENGINE-GOTCHAS.md)).
 That is left in place and priced for instead: doubled from stock to **400m/3000e
 for +100 mass cap** and **500m/2400e for +500 energy cap** (2026-08-08), so
 buying capacity ahead of the round schedule is a real purchase rather than
@@ -400,9 +401,40 @@ slot and gives you nothing — self-defeating rather than exploitable.
 ### ACU rules
 
 The ACU is the only builder. `AcuRules.lua` applies a `BuffBlueprint` giving 4x
-`BuildRate` and 4x `MoveMult` — this mode is about what you queue, not about
-walking, and the speed is what makes siting a factory in a teammate's lane a
-practical choice rather than a round-long trek. A 1s tick then enforces:
+`BuildRate`, and separately sets movement to 4x — this mode is about what you
+queue, not about walking, and the speed is what makes siting a factory in a
+teammate's lane a practical choice rather than a round-long trek.
+
+Movement is **not** done with the buff's `MoveMult` field: that one number feeds
+`SetSpeedMult`, `SetAccMult` *and* `SetTurnMult` together, so the three can
+never differ. `AcuRules.ApplyMovement` calls them itself from
+`Config.AcuMoveSpeedMult` / `AcuMoveAccelMult` / `AcuMoveTurnMult`.
+
+A 4x ACU also needs a **brake**, which no multiplier can supply and which the
+stock ACU blueprints omit entirely. Without one it slowed hard near its
+destination and crept the last stretch in forward jerks.
+`units/LineWars_units.bp` merges `Physics.MaxBrake = 10` into the four ACUs;
+game 27570392 confirmed that removed the stutter outright and that no multiplier
+combination reproduced or relieved it. The value is tuned on **time to stop**
+(`v/b`), not stopping distance — stock FA land units sit in a 0.5–1.0 s band,
+and 10 gives 0.68 s at the boosted speed. The `.bp` carries the full ladder.
+
+Being a map `.bp` this is load-time only and **loses to mods**; under a
+unit-overhaul mod the lever left is lowering `AcuMoveSpeedMult`. `AcuRules` logs
+each ACU's loaded `MaxBrake` once, so `nil` in the log means the merge never
+reached the engine. See [`ENGINE-GOTCHAS.md`](ENGINE-GOTCHAS.md) for the
+mechanism.
+
+**`/acu <speed> <accel> <turn>`** retunes the three multipliers live (a bare
+`/acu` reports them); `MaxBrake` has no runtime setter and is not reachable this
+way. It is gated on `Config.AcuTuneCommand`, **which must be `false` for a
+public release** — otherwise any player can type themselves a speed cheat. Set
+it to `false`, never `nil`: nil creates no key and reading it *throws*, which
+once took every ACU rule offline for a match. Deliberately not gated on
+`DebugMode`, which also gates `Config.Log`: tying the two would force a choice
+between shipping the cheat and playtesting with no log.
+
+A 1s tick then enforces:
 
 - **No-build zones** — structures inside a zone are refunded pro-rata by
   `GetFractionComplete()` and destroyed, so a misclick is not a death sentence.
@@ -568,8 +600,9 @@ marching through the lane is caught too. Victims are sorted by `.EntityId`
 before being killed: death weapons damage neighbours, so kill order reaches sim
 state and must not depend on engine list order (the usual desync rule).
 
-The command reaches the sim without any UI code — see *Engine findings* below
-for how, and `lib/ChatCommands.lua` for the citations. Tunables:
+The command reaches the sim without any UI code — see
+[`ENGINE-GOTCHAS.md`](ENGINE-GOTCHAS.md) for how, and `lib/ChatCommands.lua` for
+the citations. Tunables:
 `Config.SosCommand`, `SosCharges`, `SosKillsCommander`.
 
 ### Scoreboard and the how-to-play card
@@ -763,136 +796,16 @@ nothing else — a Tank or Artillery Spawner is unaffordable on round 1.
 
 ## Engine findings
 
-FAF-specific behaviour that cost real debugging time. Worth reading before
-changing anything structural.
+FAF-specific behaviour that cost real debugging time — lowercase blueprint-id
+categories, `AddRestriction` killing script-spawned units, map `.bp` overrides,
+reading chat from the sim, the `PrintText` that can kill `PrintText`, motion
+multipliers and braking, and the strict-globals trap that makes `X = nil` a
+crash rather than an "off" switch — is collected in
+[`ENGINE-GOTCHAS.md`](ENGINE-GOTCHAS.md). **Read it before changing anything
+structural.**
 
-> The project-agnostic version of this — everything below plus the desync rule,
-> the Lua 5.0 dialect, map/mod anatomy and a symptom→cause table, written for
-> *any* FAF map or mod rather than for Line Wars — lives in
-> [`FAF-SCRIPTING-GUIDE.md`](FAF-SCRIPTING-GUIDE.md).
-
-- **Blueprint-id categories are lowercase.** `categories.ueb1101` exists;
-  `categories.UEB1101` does not. `EntityCategory + nil` throws *"get as UserData
-  expected but got nil"*, which surfaces as the whole `OnStart` silently
-  failing. Confirmed by grepping `gamedata/lua.nx2` — there are zero uppercase
-  uses. `AllowedCategories()` nil-guards and WARNs for this reason.
-- **`AddRestriction` destroys script-spawned units too.** The Core never
-  appeared because the map's own `AddRestriction(ALLUNITS - allowed)` killed it
-  on completion (*"Unit.OnStopBeingBuilt() cannot create restricted unit"*).
-  The fix is to include `Config.CoreBlueprint` in the allowed set — but note
-  **an exemption granted so the script can spawn something also hands it to the
-  players**, and the reasoning that "players still cannot build the Core, since
-  it is T3 and all engineers are restricted" was simply **wrong**. The ACU is not
-  an engineer: stock `ueb1301` carries `BUILTBYTIER3COMMANDER` and `UEF`, so the
-  instant a UEF player finished `T3Engineering` the Core appeared in their build
-  menu, at a stock 2500 e/s against a Core throttled to 500 (observed in game
-  27565454, 2026-08-07 — alongside the experimentals, because that one
-  enhancement unlocks both at once). The fix is at the blueprint end, where a
-  restriction exemption cannot undo it: `units/LineWars_units.bp` overwrites
-  those two `Categories` entries with an inert marker, so no ACU's
-  `BuildableCategory` can express it while the script spawns it as before.
-  Anything else added to `allowed` wants the same audit. `CoreStorage`'s
-  `ueb1106`/`ueb1105` and their faction pairs carry `BUILTBYTIER2COMMANDER`
-  (verified in `units.nx2`, 2026-08-08), so any ACU past `AdvancedEngineering`
-  can build storage — the per-round storage grant on demand, against a design
-  where storage and not income is what gates T3. That one is **deliberately left
-  buildable and repriced instead** (2026-08-08): both are doubled from stock, to
-  400m/3000e for +100 mass cap and 500m/2400e for +500 energy cap. Buying
-  capacity is a legal play; it just has to be worth the mass.
-- **`CreateUnitHPR` throws on failure — it does not return nil — and the army
-  unit cap is what makes it fail.** The lobby's unit cap applies per army,
-  `ARMY_WAVE_n` extra armies included, and a persistent queue re-spawning the
-  whole standing wave every round walks straight into it (a lane with no
-  opposing player is worst: nothing there ever dies). In game 27565454 one
-  refusal at round 26 unwound through `SpawnWave` → `SpawnWaveForArmy` →
-  `RoundManager`'s loop and **killed the round-loop thread**, which is the whole
-  game: no further rounds or waves, no error on screen, and `FactoryQueue`
-  charging on for waves that never came. Every call site is now `pcall`ed per
-  unit, per lane and per army, and each round logs every wave army's
-  `UnitCap_Current`/`UnitCap_MaxCap` so the next game confirms the cap directly
-  — FAF's own JsonStats blob reports human armies only, so a wave army's
-  population appears nowhere else. Two rules fall out: **a long-lived
-  `ForkThread` that the game depends on must not be able to throw**, and
-  `pcall`ed code must never `WaitSeconds`, since this Lua cannot yield across a
-  `pcall` boundary.
-- **A map can override blueprints without shipping a mod.** `LoadBlueprints()`
-  in `lua/system/Blueprints.lua` runs `DiskFindFiles(preGameData.CurrentMapDir,
-  '*.bp')` after the game files and before mods, on **both** the sim and UI
-  side. `CurrentMapDir` is written into `Game.prefs` by `ui/lobby/lobby.lua`.
-  `StoreBlueprint` honours `Merge = true`, which merges fields into the stock
-  blueprint rather than replacing it — so we only state what differs. Merges can
-  add and change fields but **cannot delete** them.
-  - Useful targets: `Description` (this is the *entire* build-button hover
-    tooltip — `construction.lua` sets `tooltipID = LOC(bp.Description)` and
-    builds a title-only tooltip), `General.UnitName` (the unit-info panel name),
-    `StrategicIconName`, and `Economy.*`.
-  - A `.bp` may call `UnitBlueprint{}` any number of times and may use
-    `doscript(path, env)`, so `LineWars_spawners_unit.bp` generates all 12
-    merges from `SpawnerTypes.lua` instead of duplicating them. The build-menu
-    text therefore cannot drift from the balance table.
-  - It runs inside the loader's `safecall`, so a failure degrades to stock
-    descriptions rather than crashing. Grep the game log for
-    `Blueprints Loading: Blueprints from current map`.
-- **The 48x48 build-menu art is *not* changeable from a map.** It is looked up
-  as `<skin textures>/icons/units/<id>_icon.dds` and only mods and skins mount
-  at the VFS root; map folders mount at `/maps/<name>/`. The workaround is
-  `StrategicIconName`, a blueprint field that the build button draws as an
-  overlay — set to the icon of the unit *produced* rather than of the proxy
-  structure, so the button reads at a glance. Full custom art would need a
-  companion mod players must enable, which is explicitly not wanted.
-- **Chat is readable from the sim without any UI code.** For every chat message
-  it receives, the stock UI fires a SimCallback whose only job is to record the
-  message into the replay (`ui/game/chat.lua:810` →
-  `SimUtils.GiveResourcesToPlayer`, whose first act is `SendChatToReplay(data)`
-  before it returns early because `From == To`). `data.Sender` is the nickname
-  and `data.Msg.text` is what was typed. `SendChatToReplay` is called
-  *unqualified* from inside that function, so it resolves through SimUtils'
-  module environment at call time, and replacing
-  `import('/lua/simutils.lua').SendChatToReplay` intercepts every message —
-  which is how `/sos` works. A leading `/` survives into `msg.text`:
-  `chat.lua:719` strips it only when building `args` for `RunChatCommand`, and
-  the only registered client-side commands are the four notify toggles.
-  Handlers are dispatched with `ForkThread` so a throw cannot take replay chat
-  logging down with it. **The sim sees more than one copy of a single message**
-  (confirmed: one typed `/sos` logged two dispatches in a 4-player game), since
-  `ReceiveChat` runs on every client that received it and each issues its own
-  callback — hence the dedupe in `ChatCommands`. Hooking the callback table
-  itself is not possible:
-  `Callbacks` in `SimCallbacks.lua` is a file-local that captured its function
-  reference at load. **Unconfirmed:** `ReceiveChat` runs on every client that
-  received the message, so the sim may see one copy per receiving client;
-  `ChatCommands` dedupes on sender + text + game time and logs every
-  invocation so the first game log settles it.
-- **The first `PrintText` of the game can kill `PrintText` for the whole
-  session.** `textdisplay.lua:17` captures its parent as a module upvalue at
-  load time — `local worldView = borders.GetMapGroup()` — and `GetMapGroup()`
-  returns `false` until `gamemain.CreateUI` builds the border controls. The sim
-  starts before that, so a message sent from `OnStart` loads `textdisplay` with
-  a dead parent and every later `PrintText` throws *"maui/text.lua(19): Expected
-  a game object"*. Unrecoverable: the module is cached and sim code cannot reach
-  UI code to repair it. Observed in `game_27479823.log` — 138 errors, no
-  on-screen text at all for the whole match. **Every message in this map
-  therefore goes through `Config.Announce`**, which queues anything printed in
-  the first `Config.HudStartDelaySeconds` (8) and flushes it when the gate
-  opens; `Config.WaitForHud()` is for anything that repaints on a cycle, since a
-  queued batch flushing late would collide with the next cycle. If on-screen
-  text goes missing again and that error is in the log, raise
-  `HudStartDelaySeconds`.
-- **The objectives panel does not exist in skirmish.** `gamemain.lua:305` only
-  calls `objectives2.CreateUI` when `campaignMode` is set, so `SimObjectives` /
-  `Sync.ObjectivesTable` are a dead end for a skirmish map's HUD. `PrintText` is
-  the only display channel, and its control pool has the refresh rule described
-  under *Scoreboard* above.
-- **`BuffBlueprint` is a sim global usable from map code**, so ACU buffs need no
-  mod either. `Buff.ApplyBuff(acu, 'LineWarsAcu')` is keyed by unit object in
-  `AcuRules`, so a rebuilt ACU gets re-buffed.
-- **`MarkerToPosition` errors on a missing marker**, which makes probing for
-  optional markers impossible. `Config.GetMarker()` reads
-  `Scenario.MasterChain._MASTERCHAIN_.Markers[name]` directly and returns nil
-  instead.
-- **The gamedata `.nx2` archives are plain zips.** `unzip ~/.faforever/gamedata/
-  lua.nx2` (engine + UI lua), `units.nx2` (blueprints), `textures.nx2` (icons)
-  is the fastest way to answer "what does the engine actually do here".
+The project-agnostic version, written for *any* FAF map or mod rather than for
+Line Wars, is [`FAF-SCRIPTING-GUIDE.md`](FAF-SCRIPTING-GUIDE.md).
 
 ## Development workflow
 

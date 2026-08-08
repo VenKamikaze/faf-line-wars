@@ -19,7 +19,10 @@ local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local UnitTypes = import(DIR .. 'lib/UnitTypes.lua')
 local FactoryQueue = import(DIR .. 'lib/FactoryQueue.lua')
+local ChatCommands = import(DIR .. 'lib/ChatCommands.lua')
 
+-- NOTE: no MoveMult here, deliberately. Movement is applied by ApplyMovement
+-- below instead. See the comment there for why.
 BuffBlueprint {
     Name = 'LineWarsAcu',
     DisplayName = 'LineWarsAcu',
@@ -28,9 +31,56 @@ BuffBlueprint {
     Duration = -1,
     Affects = {
         BuildRate = { Add = 0, Mult = Config.AcuBuildRateMult },
-        MoveMult = { Add = 0, Mult = Config.AcuMoveSpeedMult },
     },
 }
+
+-- Speed the ACU up.
+--
+-- WHY NOT A `MoveMult` BUFF, WHICH IS THE OBVIOUS WAY. Because that field is
+-- three settings wearing one hat: lua/sim/Buff.lua:386-390 takes the single
+-- number and calls SetSpeedMult, SetAccMult AND SetTurnMult with it. Speed,
+-- acceleration and turn rate can never differ under a buff, and they need to.
+--
+-- THE STUTTER THIS FIXES (playtest 2026-08-08): the ACU slowed sharply once it
+-- was near its destination, then covered the last stretch in a series of small
+-- forward jerks.
+--
+-- What is CERTAIN: braking is the one motion parameter with no multiplier
+-- handle. SetSpeedMult, SetAccMult and SetTurnMult are the only motion Set*Mult
+-- calls the engine exposes, grepped across all of lua.nx2 on 2026-08-08. So a
+-- 4x MoveMult raised top speed 1.7 -> 6.8 and left braking exactly where it was
+-- — and where it was is nowhere: MaxBrake is ABSENT from all four ACU Physics
+-- blocks (UEL0001_unit.bp and the other three), while the otherwise
+-- near-identical SACU (UEL0301) declares MaxBrake = 2.2 beside the same
+-- MaxAcceleration. Stock, an ACU never moves fast enough for that to show.
+-- Braking distance goes as v^2/2b, so 4x speed asks ~16x the room, and the
+-- engine's arrival behaviour degrades accordingly.
+--
+-- CONFIRMED in game 27570392 (2026-08-08): merging Physics.MaxBrake into the
+-- four ACUs removed the stutter outright, and no combination of these three
+-- multipliers reproduced or relieved it. Braking was the whole of it. The fix
+-- therefore lives in units/LineWars_units.bp, which is load-time only because
+-- no runtime brake setter exists — SetSpeedMult/SetAccMult/SetTurnMult above
+-- are the only motion multipliers, and unit:GetNavigator() exposes just SetGoal
+-- and AbortMove (both greps over lua.nx2, 2026-08-08).
+--
+-- So these three CANNOT touch braking, and that is not a gap to be plugged
+-- later — it is the shape of the engine. What they are still for: tuning speed
+-- against acceleration and turn rate around whatever brake is loaded, and being
+-- the only lever left under a unit-overhaul mod, which beats a map .bp and
+-- takes the brake fix away with it (see the .bp header).
+--
+-- Applied once per ACU rather than every tick, per the "never mutate a unit's
+-- state on a fast tick when nothing changed" rule in CLAUDE.md. The cost is
+-- that a movement debuff would clobber these permanently — the buff system
+-- recalculates its own affects, this does not, and nothing re-applies once
+-- `buffed[acu]` is set (Unit.lua:4454 is such a caller). Nothing in this map's
+-- roster does that today.
+function ApplyMovement(acu)
+    acu:SetSpeedMult(Config.AcuMoveSpeedMult)
+    acu:SetAccMult(Config.AcuMoveAccelMult)
+    acu:SetTurnMult(Config.AcuMoveTurnMult)
+end
 
 local zones = nil   -- lazily built list of {x0, x1, z0, z1}
 
@@ -148,6 +198,80 @@ local function EnforceMidline(armyName, acu)
     end
 end
 
+-- Split a string on whitespace. string.gmatch does not exist in this Lua
+-- dialect (it is the 5.1 name for 5.0's string.gfind), so this walks with
+-- string.find, which is spelled the same in both.
+local function Words(s)
+    local out = {}
+    local init = 1
+    while true do
+        local a, b, w = string.find(s, '(%S+)', init)
+        if not a then
+            break
+        end
+        table.insert(out, w)
+        init = b + 1
+    end
+    return out
+end
+
+-- Dev-only live tuning of the three movement multipliers: "/acu <speed>
+-- <accel> <turn>". Trailing values may be omitted to keep their current value,
+-- and a bare "/acu" just reports. Exists because the brake half of the fix
+-- (units/LineWars_units.bp) is load-time only and cannot be A/B tested in a
+-- running game — this is how the multipliers around it get settled in ONE
+-- session instead of one game per guess.
+--
+-- Applies to every player's ACUs, not just the caller's: the multipliers live
+-- in Config, which is global, so a rebuilt enemy ACU would pick up the new
+-- values anyway. Better that both sides match than that they silently drift.
+--
+-- THIS COMMAND CANNOT CHANGE BRAKING — which is easy to miss while tuning, so
+-- the reply below says so out loud. Braking is blueprint-only; see
+-- ApplyMovement. Retuning it means editing units/LineWars_units.bp and
+-- relaunching.
+local function TuneCommand(armyName, args)
+    local w = Words(args)
+    local names = { 'AcuMoveSpeedMult', 'AcuMoveAccelMult', 'AcuMoveTurnMult' }
+    local parsed = {}
+
+    -- Validated in full BEFORE anything is assigned. A half-applied "/acu 4 abc
+    -- 8" would leave Config disagreeing with the live ACUs, in the one tool
+    -- whose entire job is correlating those numbers to how the ACU feels.
+    for i, key in names do
+        if w[i] then
+            local v = tonumber(w[i])
+            if not v or v < 0.1 or v > 20 then
+                Config.PrintTextFor(armyName, 'usage: ' .. Config.AcuTuneCommand ..
+                    ' <speed> <accel> <turn>   (0.1 - 20, trailing values optional)',
+                    14, 'ffff2222', 5, 'center')
+                return
+            end
+            parsed[key] = v
+        end
+    end
+    for i, key in names do
+        if parsed[key] then
+            Config[key] = parsed[key]
+        end
+    end
+
+    for i, name in ScenarioInfo.LW.ActivePlayers do
+        for j, acu in GetArmyBrain(name):GetListOfUnits(categories.COMMAND, false) do
+            if not acu.Dead then
+                ApplyMovement(acu)
+            end
+        end
+    end
+
+    local msg = 'ACU move: speed ' .. tostring(Config.AcuMoveSpeedMult) ..
+        '  accel ' .. tostring(Config.AcuMoveAccelMult) ..
+        '  turn ' .. tostring(Config.AcuMoveTurnMult) ..
+        '  (braking is blueprint-only, not tunable here)'
+    Config.Log(msg .. ' (set by ' .. armyName .. ')')
+    Config.PrintTextFor(armyName, msg, 14, 'ff00ff00', 5, 'center')
+end
+
 local function RulesLoop()
     local LW = ScenarioInfo.LW
     local buffed = {}   -- keyed by unit object so a rebuilt ACU is buffed again
@@ -158,7 +282,22 @@ local function RulesLoop()
                     if not acu.Dead then
                         if not buffed[acu] then
                             Buff.ApplyBuff(acu, 'LineWarsAcu')
+                            ApplyMovement(acu)
                             buffed[acu] = true
+                            -- Proof the units/LineWars_units.bp brake merge
+                            -- actually loaded. Every other merge in that file
+                            -- writes a key the stock blueprint already has;
+                            -- MaxBrake is a NEW key on Physics, so whether
+                            -- BlueprintMerged adds it is untested. nil here
+                            -- means the merge never reached the engine (a mod
+                            -- winning, per the .bp header) and the stutter fix
+                            -- is not in play — don't chase it in-game.
+                            Config.Log('ACU ' .. tostring(acu.UnitId) .. ' MaxBrake=' ..
+                                tostring(acu:GetBlueprint().Physics.MaxBrake) ..
+                                ' speed/accel/turn mult=' ..
+                                tostring(Config.AcuMoveSpeedMult) .. '/' ..
+                                tostring(Config.AcuMoveAccelMult) .. '/' ..
+                                tostring(Config.AcuMoveTurnMult))
                         end
                         EnforceMidline(armyName, acu)
                     end
@@ -170,6 +309,17 @@ local function RulesLoop()
     end
 end
 
+-- ORDER MATTERS. The rules loop is forked FIRST so that nothing in the optional
+-- dev-tool path below can stop it starting. In game 27570431 it was the other
+-- way round and a single bad Config value (AcuTuneCommand = nil, which throws on
+-- read under FA's strict globals — see the note beside it in Config.lua) threw
+-- out of this function before the fork, silently disabling the build-rate buff,
+-- the movement multipliers, midline enforcement and the no-build zones for the
+-- whole match. The tuning command is a convenience; the rules are the game mode.
 function Start()
     ForkThread(RulesLoop)
+    if Config.AcuTuneCommand then
+        ChatCommands.Register(Config.AcuTuneCommand, TuneCommand, true)
+        Config.Log('ACU movement tuning command "' .. Config.AcuTuneCommand .. '" registered')
+    end
 end

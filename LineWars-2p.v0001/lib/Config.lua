@@ -274,7 +274,40 @@ ScoreboardTopSpacerLines = 9
 -- ACU rules (see lib/AcuRules.lua)
 --------------------------------------------------------------------------
 AcuBuildRateMult = 4            -- ACU build rate multiplier vs stock
-AcuMoveSpeedMult = 4            -- ACU movement speed multiplier vs stock
+
+-- Movement multipliers, applied to each ACU as three separate moho calls rather
+-- than through the buff system. A buff's `MoveMult` field forces all three to
+-- the SAME value (lua/sim/Buff.lua:386-390 calls SetSpeedMult/SetAccMult/
+-- SetTurnMult with one number), and they need to be independent — see the
+-- stutter note in lib/AcuRules.lua. These three are the whole mod-proof half of
+-- the movement tuning; the brake half lives in units/LineWars_units.bp and can
+-- only be set at load time.
+AcuMoveSpeedMult = 4            -- ACU top speed multiplier vs stock (1.7 -> 6.8)
+AcuMoveAccelMult = 4            -- ACU acceleration multiplier vs stock
+AcuMoveTurnMult = 4             -- ACU turn-rate multiplier vs stock
+
+-- Dev-only "/acu <speed> <accel> <turn>" chat command for tuning the three
+-- multipliers above live, without a relaunch. SET THIS TO nil BEFORE A PUBLIC
+-- RELEASE — left on, it is a speed cheat any player can type.
+--
+-- Deliberately NOT gated on DebugMode: that flag also gates Config.Log, and the
+-- game log is the only debugging channel this map has, so tying the two would
+-- force a choice between shipping the cheat and playtesting blind.
+--
+-- OFF for release. Set back to '/acu' to tune movement again — note that even
+-- when on it cannot touch braking, which is blueprint-only (see ApplyMovement
+-- in lib/AcuRules.lua), so leaving it off costs nothing when the thing under
+-- test is MaxBrake.
+--
+-- `false`, NEVER nil. Assigning nil does not create the key, and FA installs an
+-- __index on _G that ERRORS on reading a nonexistent global rather than
+-- returning nil (lua/system/config.lua:55-59). Writing nil here therefore does
+-- not disable the command — it throws inside AcuRules.Start and takes the whole
+-- ACU rules loop down with it, which is exactly what happened in game 27570431:
+-- no build-rate buff, no movement multipliers, and no midline or no-build-zone
+-- enforcement for the entire match. The same trap applies to every value in
+-- this file: to turn something off, give it `false`.
+AcuTuneCommand = false
 AcuRulesTickSeconds = 1         -- how often ACU/no-build rules are enforced
 ExperimentalTickSeconds = 1     -- how often lib/Experimentals.lua checks for the
                                 -- tech-3 upgrade and for a finished experimental

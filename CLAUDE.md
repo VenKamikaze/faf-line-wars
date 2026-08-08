@@ -4,9 +4,10 @@
 
 Read these rather than re-deriving; each is current and cited.
 
-- `README.md` — the whole design: game loop, layout, **map marker contract** (lane/Core/spawn/no-build marker names), economy, ACU rules, win condition, lobby options, engine findings, dev workflow. Start here.
+- `README.md` — the whole design: game loop, layout, **map marker contract** (lane/Core/spawn/no-build marker names), economy, ACU rules, win condition, lobby options, dev workflow. It is also the repo's GitHub front page, so keep it about the design and push engine detail to the file below. Start here.
+- `ENGINE-GOTCHAS.md` — **this project's** hard-won FAF engine behaviour, grouped by area (Lua environment, spawning/restrictions, map `.bp` overrides, units and motion, chat, on-screen text). The "Engine gotchas already paid for" list below is its summary; this is the cited long form. Read before changing anything structural.
 - `FACTORY-QUEUE-DESIGN.md` — why the factory-queue model exists, with `file:line` engine citations, plus the open questions (the static economy is the big one still open). Read before touching `lib/FactoryQueue.lua`.
-- `FAF-SCRIPTING-GUIDE.md` — **project-agnostic**. How to write Lua for FAF maps/mods generally: the Lua 5.0 dialect, map/mod file anatomy, the determinism (desync) rule, restrictions/spawning, blueprint limits, and a symptom→cause table. Claims are tagged [GAME]/[SRC]/[BP]/[ASSUMED]. If reading README.md, this can usually be ignored. If writing large features involving engine-facing code then it may be useful to review; it is where the "Engine gotchas" below are explained in full.
+- `FAF-SCRIPTING-GUIDE.md` — **project-agnostic**. How to write Lua for FAF maps/mods generally: the Lua 5.0 dialect, map/mod file anatomy, the determinism (desync) rule, restrictions/spawning, blueprint limits, and a symptom→cause table. Claims are tagged [GAME]/[SRC]/[BP]/[ASSUMED]. If reading README.md, this can usually be ignored. If writing large features involving engine-facing code then it may be useful to review.
 - `UNITS.md` — **generated**. Every buildable factory and unit with the mass/energy actually charged, sorted by cost. The balance reference.
 - `lib/UnitTypes.lua` — the single balance table (which factories exist, which units each offers). `units/LineWars_units.bp` — what they cost, plus storage caps.
 - `lua-examples/{maps,mods}` — reference FAF maps/mods (Wave of Death, The Great Pass, KotH) for how others solve things.
@@ -34,6 +35,7 @@ Read these rather than re-deriving; each is current and cited.
 
 ## Engine gotchas already paid for
 
+- **Never write `X = nil` to turn a `Config` value off — use `false`.** Assigning nil creates no key, and FA puts an `__index` on `_G` that *errors* on reading a nonexistent global (`lua/system/config.lua:55-59`) rather than returning nil. One such read threw out of `AcuRules.Start()` before its `ForkThread` and silently disabled every ACU rule for a whole match. It logs at `warning:`, not `error:`, and play continues — so fork critical loops **before** optional setup in any `Start()`, and check that every `Config.X` read has a definition.
 - `PrintText` from sim shows on EVERY client. Use `Config.PrintTextFor` / `PrintTextForSide`, which gate on `GetFocusArmy()` — safe for UI-only effects, never for anything touching sim state (desync).
 - `SetBlockCommandQueue(true)` also blocks the script's own `IssueBuildFactory`/`IssueClearCommands`. Never use it as an affordability gate.
 - **Never mutate a unit's state on a fast tick when nothing changed.** Any re-fire of the UI's `OnSelectionChanged` runs `construction.OnSelection`, whose first act is `UnitViewDetail.Hide()` (`construction.lua:2530`) plus a full rebuild of the build-icon grid — and that panel is only re-shown by a fresh MouseEnter. A redundant `SetPaused`/`SetBuildRate` on a 0.1s loop therefore made the hover stats window vanish unless the mouse kept moving. Check before you set (`Pin` in `lib/FactoryQueue.lua`). Note `Unit:GetBuildRate` clamps to 0.00001, never 0 (`lua/sim/Unit.lua:1149`), so compare against an epsilon.

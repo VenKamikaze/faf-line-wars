@@ -464,3 +464,77 @@ for i, acu in { 'uel0001', 'ual0001', 'url0001', 'xsl0001' } do
         },
     }
 end
+
+--------------------------------------------------------------------------
+-- Give the ACUs a brake. Fixes the movement stutter seen in the 2026-08-08
+-- playtest: the ACU slows sharply as it nears its destination, then creeps the
+-- last stretch in a series of forward jerks.
+--
+-- THE CAUSE. lib/AcuRules.lua runs the ACU at Config.AcuMoveSpeedMult (4x), so
+-- top speed is 1.7 -> 6.8. Braking does not come along: SetSpeedMult, SetAccMult
+-- and SetTurnMult are the ONLY motion multipliers the engine exposes (checked
+-- against every Set*Mult in lua.nx2, 2026-08-08), and none of them is a brake.
+-- Stopping distance scales as v^2/2b, so 4x speed wants ~16x the room.
+--
+-- And the room is not there. In the stock Physics block (UEL0001_unit.bp,
+-- identical in the other three) MaxBrake is ABSENT — not low, missing. The
+-- near-identical SACU (UEL0301) declares MaxBrake = 2.2 alongside the same
+-- MaxAcceleration; the four ACUs declare none at all, because stock they never
+-- move fast enough to care. Whether the engine then falls back to
+-- MaxAcceleration or to something smaller was not established, and does not
+-- change the fix: either way it is a stock-speed brake on a 4x unit, and the
+-- arrival behaviour degrades. (The exact shape of that degradation — arriving
+-- short and creeping, versus overshooting and, with MaxSpeedReverse = 0,
+-- arcing back around on TurnRadius = 10 — is discussed in lib/AcuRules.lua.)
+--
+-- WHY 10, AND HOW TO RETUNE IT. The number that matters for feel is time to
+-- stop from top speed, v/b, not stopping distance — and stock FA land units all
+-- sit in a 0.5-1.0 second band. At the boosted speed of 6.8:
+--
+--     MaxBrake   time to stop   coast distance
+--        30          0.23 s         0.77      first try; too snappy
+--        20          0.34 s         1.16
+--        15          0.45 s         1.54
+--     >> 10          0.68 s         2.31   << here: mid-band
+--         8          0.85 s         2.89
+--       6.8          1.00 s         3.40      slowest still in family
+--      ~1.7          4.00 s        13.60      the original bug
+--
+--   for reference: Striker UEL0201 3.4/3.4 = 1.00 s, Percival UEL0303
+--   3.8/3.8 = 1.00 s, Engineer UEL0101 4.5/9 = 0.50 s (brake > accel is the
+--   normal idiom — do NOT just mirror MaxAcceleration the way the SACU does).
+--
+-- 30 was the first value shipped. Game 27570392 confirmed it killed the stutter
+-- outright, but it halted the ACU abruptly — 0.23 s is 2-4x snappier than
+-- anything else in the game. 10 walks that back into the band. Going much below
+-- 6.8 starts spending the margin that fixed the bug.
+--
+-- Note the ladder above assumes the engine does NOT scale MaxBrake by
+-- SetAccMult. If it does, every time above is 4x shorter and the whole ladder
+-- shifts; that was never established, because at 30 both readings are "abrupt"
+-- and neither can be told apart by eye. If 10 still feels abrupt, that is the
+-- answer, and the band to try is 2-4 rather than 6.8-15.
+--
+-- LOAD-TIME ONLY, AND MOD-FRAGILE. There is no runtime brake setter, so this
+-- cannot be tuned by the "/acu" chat command the way the three multipliers can
+-- — changing it costs a relaunch. And per the header at the top of this file, a
+-- map .bp loses to mods: with a unit-overhaul mod active this merge is
+-- overridden away and the stutter comes back, in which case the lever left is
+-- lowering Config.AcuMoveSpeedMult.
+--
+-- If MaxBrake alone does not settle it, the runtime lever comes first: "/acu 4
+-- 2 4" drops acceleration below speed so each correction is gentler. Only if
+-- the ACU is seen visibly OVERSHOOTING and arcing back is TurnRadius = 10 the
+-- suspect — left at stock here so one variable moves at a time. It is far
+-- larger than the ACU's kinematic turn radius (~1.1 at stock speed), so it is
+-- an approach/steering distance rather than a geometric minimum, and 10 map
+-- units is 1.5 seconds of travel at 6.8 speed. Tanks ship 0.
+for i, acu in { 'uel0001', 'ual0001', 'url0001', 'xsl0001' } do
+    UnitBlueprint {
+        Merge = true,
+        BlueprintId = acu,
+        Physics = {
+            MaxBrake = 10,
+        },
+    }
+end

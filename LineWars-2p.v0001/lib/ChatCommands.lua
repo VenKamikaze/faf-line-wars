@@ -25,13 +25,15 @@
 -- table itself is NOT possible: `Callbacks` in SimCallbacks.lua is a file-local
 -- and captured its function reference at load time.
 --
--- HOW MANY TIMES IT FIRES. `ReceiveChat` runs on every client that received the
--- message, and each one issues its own SimCallback, so the sim may see the same
--- message once per receiving client (with a different `data.From` each time,
--- but the same Sender/Msg). This is NOT confirmed either way in-game yet, so
--- the dispatcher dedupes on sender + text + game time, and the Config.Log line
--- below prints on EVERY invocation: grep "LineWars: chat command" in the game
--- log and count the lines to settle it.
+-- HOW MANY TIMES IT FIRES: ONCE PER RECEIVING CLIENT — CONFIRMED, and the
+-- dedupe below is load-bearing, not a precaution. `ReceiveChat` runs on every
+-- client that received the message and each issues its own SimCallback (same
+-- Sender/Msg, different `data.From`). Counting "LineWars: chat command" lines
+-- settled it: in the 5-player game 27565454 every single `/sos` logged exactly
+-- 5 times (one player's 4 uses produced 20 lines); in solo game 27570392 every
+-- `/acu` logged once. Without the dedupe, `/sos` would have fired five times
+-- per use in that game. ChatCommandDedupeSeconds = 0.5 was enough: all copies
+-- arrive within the same tick, and exactly one dispatch happened per use.
 --
 -- DETERMINISM. SimCallbacks arrive through the lockstep command stream, so every
 -- client's sim sees the same messages in the same order; the data we read
@@ -40,17 +42,23 @@ local DIR = ScenarioInfo.directory or '/maps/LineWars-2p.v0001/'
 local Config = import(DIR .. 'lib/Config.lua')
 local SimUtils = import('/lua/simutils.lua')
 
--- command string (lowercase, e.g. '/sos') -> function(armyName)
+-- command string (lowercase, e.g. '/sos') -> { fn = function(armyName, args), args = bool }
 local handlers = {}
 local installed = false
--- dedupe: 'sender|command' -> game time of the last accepted dispatch
+-- dedupe: 'sender|command|args' -> game time of the last accepted dispatch
 local lastAccepted = {}
 
 -- Register a chat command. `command` must be lowercase; the typed text has to
 -- match it exactly once trimmed and lowercased, so merely discussing "/sos" in
 -- a sentence never fires it.
-function Register(command, fn)
-    handlers[command] = fn
+--
+-- `takesArgs` relaxes that to "first word matches", and the rest of the line is
+-- passed to the handler as a second string argument (empty when nothing
+-- followed). Only pass it for commands that really read arguments: it is what
+-- makes "/acu 4 6" reachable, and it is also what would let a sentence STARTING
+-- with the command word fire it, which is why it is not the default.
+function Register(command, fn, takesArgs)
+    handlers[command] = { fn = fn, args = takesArgs }
 end
 
 local function Trim(s)
@@ -82,17 +90,31 @@ local function OnChatMessage(data)
     if type(text) ~= 'string' then
         return
     end
-    local command = Trim(string.lower(text))
-    local fn = handlers[command]
-    if not fn then
+    local line = Trim(string.lower(text))
+    local command, args = line, ''
+    local entry = handlers[command]
+    if not entry then
+        -- Not an exact match. Try the first word, and accept it only if that
+        -- command was registered as taking arguments — an exact-match command
+        -- must stay exact.
+        local _, _, first, rest = string.find(line, '^(%S+)%s+(.*)$')
+        if first then
+            local candidate = handlers[first]
+            if candidate and candidate.args then
+                command, args, entry = first, Trim(rest), candidate
+            end
+        end
+    end
+    if not entry then
         return
     end
 
     -- Logged before the dedupe so the log shows how many copies really arrive.
-    Config.Log('chat command "' .. command .. '" from ' .. tostring(data.Sender))
+    Config.Log('chat command "' .. command .. '" args "' .. args .. '" from ' ..
+        tostring(data.Sender))
 
     local now = GetGameTimeSeconds()
-    local key = tostring(data.Sender) .. '|' .. command
+    local key = tostring(data.Sender) .. '|' .. command .. '|' .. args
     local seen = lastAccepted[key]
     if seen and now - seen < Config.ChatCommandDedupeSeconds then
         return
@@ -110,7 +132,7 @@ local function OnChatMessage(data)
     -- hundreds of units — would do it inline inside an engine callback. Forks
     -- are scheduled in the deterministic order the callbacks arrive, so this
     -- costs nothing on the desync side.
-    ForkThread(fn, armyName)
+    ForkThread(entry.fn, armyName, args)
 end
 
 function Start()
