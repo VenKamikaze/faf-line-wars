@@ -268,7 +268,7 @@ ScoreboardPollSeconds = 0.5     -- how often the loop checks whether a repaint i
 -- above the board push it down — one spacer per line, since spacers use the same
 -- font size. Eight of them clear the resource bars that sit at the top left.
 HudLeftPad = '    '
-ScoreboardTopSpacerLines = 8
+ScoreboardTopSpacerLines = 9
 
 --------------------------------------------------------------------------
 -- ACU rules (see lib/AcuRules.lua)

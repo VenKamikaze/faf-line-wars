@@ -2,6 +2,14 @@
 -- The intended default is listed first in each `values` table AND given as
 -- `default`, so the right thing happens whether the lobby treats `default`
 -- as a value key or an index.
+--
+-- PERCENT SIGNS: the lobby runs each option `label`, each value `text` and each
+-- value `help` through LOCF, i.e. string.format (mapselect.lua:903/905 and
+-- lobby.lua:3648/3650). A bare `%` there throws "invalid option to `format'",
+-- which aborts CalcVisible mid-list: the offending option renders with an empty
+-- combo box and every option below it keeps stale text. Write `%%` in those
+-- three fields. The option-level `help` is NOT formatted (tooltip body, LOC
+-- only) — leave a bare `%` there, or it displays literally as `%%`.
 options =
 {
     {
@@ -99,12 +107,15 @@ options =
         key = 'opt_lw_income_growth_pct',
         pref = 'opt_lw_income_growth_pct',
         values = {
-            { text = "50%", help = "Half the base income added per interval", key = 50, },
-            { text = "25%", help = "A quarter of the base income added per interval - slow burn", key = 25, },
-            { text = "75%", help = "Three quarters of the base income added per interval", key = 75, },
-            { text = "100%", help = "A full base income added per interval - doubles at the first step", key = 100, },
-            { text = "150%", help = "One and a half base incomes added per interval", key = 150, },
-            { text = "200%", help = "Two base incomes added per interval - very fast escalation", key = 200, },
+            -- NOTE: `text` (and value `help`) are passed through LOCF -> string.format
+            -- by the lobby, so a literal percent sign MUST be escaped as `%%` or the
+            -- whole options panel errors out. See the header comment above.
+            { text = "50%%", help = "Half the base income added per interval", key = 50, },
+            { text = "25%%", help = "A quarter of the base income added per interval - slow burn", key = 25, },
+            { text = "75%%", help = "Three quarters of the base income added per interval", key = 75, },
+            { text = "100%%", help = "A full base income added per interval - doubles at the first step", key = 100, },
+            { text = "150%%", help = "One and a half base incomes added per interval", key = 150, },
+            { text = "200%%", help = "Two base incomes added per interval - very fast escalation", key = 200, },
         },
     },
     {
